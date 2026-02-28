@@ -1,0 +1,161 @@
+{
+  "projectType": "framework",
+  "projectName": "Grip AI",
+  "projectDescription": "A self-hostable AI agent framework powered by Claude Agent SDK with multi-model fallback, tool execution, and multi-channel chat integration.",
+  "theme": "aspen",
+  "primaryColor": "#8B5CF6",
+  "lightColor": "#A78BFA",
+  "darkColor": "#7C3AED",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/engines",
+              "concepts/agents",
+              "concepts/tools",
+              "concepts/memory",
+              "concepts/sessions"
+            ]
+          },
+          {
+            "group": "Channels",
+            "pages": [
+              "channels/overview",
+              "channels/telegram",
+              "channels/discord",
+              "channels/slack"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/task-tracking",
+              "features/workflows",
+              "features/scheduling",
+              "features/mcp-servers",
+              "features/skills"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/overview",
+              "configuration/agents",
+              "configuration/providers",
+              "configuration/tools",
+              "configuration/security"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/environment-variables",
+              "deployment/self-hosting"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/agent-profiles",
+              "advanced/cost-optimization",
+              "advanced/long-running-tasks",
+              "advanced/custom-tools",
+              "advanced/custom-skills"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "REST API",
+            "pages": [
+              "api/overview",
+              "api/authentication",
+              "api/chat",
+              "api/sessions",
+              "api/tools",
+              "api/management",
+              "api/mcp"
+            ]
+          },
+          {
+            "group": "CLI Commands",
+            "pages": [
+              "cli/overview",
+              "cli/agent",
+              "cli/gateway",
+              "cli/config",
+              "cli/cron",
+              "cli/skills",
+              "cli/workflow",
+              "cli/mcp"
+            ]
+          },
+          {
+            "group": "Built-in Tools",
+            "pages": [
+              "tools/filesystem",
+              "tools/shell",
+              "tools/web",
+              "tools/research",
+              "tools/message",
+              "tools/spawn",
+              "tools/todo",
+              "tools/scheduler",
+              "tools/workflow",
+              "tools/finance",
+              "tools/mcp-proxy"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Dual-engine architecture with Claude Agent SDK and LiteLLM fallback",
+    "26 built-in tools across 16 modules",
+    "Multi-channel chat support (Telegram, Discord, Slack)",
+    "Task tracking with workspace persistence",
+    "Multi-agent workflow orchestration with DAG execution",
+    "Model Context Protocol (MCP) server integration",
+    "Cron scheduling with channel delivery",
+    "Dual-layer memory with TF-IDF retrieval",
+    "FastAPI REST API with bearer auth and rate limiting",
+    "Directory trust model and shell command deny-list security"
+  ],
+  "publicApiSurface": [
+    "grip onboard",
+    "grip agent",
+    "grip gateway",
+    "grip serve",
+    "grip config",
+    "grip cron",
+    "grip skills",
+    "grip workflow",
+    "grip mcp",
+    "POST /api/v1/chat",
+    "GET /api/v1/sessions",
+    "GET /api/v1/tools",
+    "POST /api/v1/tools/{name}/execute",
+    "GET /api/v1/mcp/servers",
+    "GET /api/v1/cron",
+    "POST /api/v1/cron",
+    "GET /api/v1/workflows"
+  ]
+}
