@@ -1,0 +1,320 @@
+---
+title: "MCP Tool Proxy"
+description: "Connect to external MCP servers and expose their tools to Grip agents"
+---
+
+## Overview
+
+The MCP (Model Context Protocol) tool proxy connects to external MCP servers, discovers their tools, and wraps them as Grip tool instances. Supports stdio (subprocess) and HTTP/SSE transports with OAuth authentication.
+
+## Installation
+
+MCP support requires the optional `mcp` dependency group:
+
+```bash
+uv pip install 'grip[mcp]'
+```
+
+## Configuration
+
+MCP servers are configured in `grip.toml` under `[tools.mcp_servers]`:
+
+```toml
+[tools.mcp_servers.filesystem]
+enabled = true
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/alice/Documents"]
+
+[tools.mcp_servers.github]
+enabled = true
+url = "https://mcp.example.com/github"
+type = "sse"
+headers = {"Authorization" = "Bearer ghp_xxxxxxxxxxxx"}
+
+[tools.mcp_servers.supabase]
+enabled = true
+url = "https://mcp-server.supabase.com/sse"
+type = "sse"
+oauth.provider = "supabase"
+oauth.client_id = "your-client-id"
+oauth.redirect_port = 18801
+```
+
+---
+
+## Transport Types
+
+### Stdio Transport
+
+Spawns a subprocess and communicates via stdin/stdout.
+
+**Configuration:**
+```toml
+[tools.mcp_servers.my_server]
+enabled = true
+command = "python"
+args = ["-m", "my_mcp_server"]
+env = {"API_KEY" = "secret123"}  # Optional environment variables
+```
+
+**Use cases:**
+- Local MCP servers (Python, Node.js, etc.)
+- Command-line tools wrapped as MCP servers
+- Servers that don't need network access
+
+### HTTP/SSE Transport
+
+Connects to a remote MCP server via HTTP with Server-Sent Events.
+
+**Configuration:**
+```toml
+[tools.mcp_servers.remote]
+enabled = true
+url = "https://api.example.com/mcp"
+type = "sse"  # or "http" for streamable HTTP
+timeout = 30.0
+headers = {"X-API-Key" = "secret123"}
+```
+
+**Types:**
+- `sse` — Server-Sent Events (default, most common)
+- `http` — Streamable HTTP transport (newer)
+
+**Use cases:**
+- Cloud-hosted MCP servers
+- Third-party MCP services (GitHub, Supabase, etc.)
+- Shared team MCP servers
+
+---
+
+## OAuth Authentication
+
+For MCP servers that require OAuth (e.g. Supabase with dynamic client registration):
+
+**Configuration:**
+```toml
+[tools.mcp_servers.supabase]
+enabled = true
+url = "https://mcp-server.supabase.com/sse"
+type = "sse"
+
+[tools.mcp_servers.supabase.oauth]
+provider = "supabase"
+client_id = "your-client-id"
+redirect_port = 18801
+```
+
+**Login flow:**
+
+1. Run `grip mcp login supabase` (or use `/mcp` command in chat)
+2. Browser opens for authorization
+3. User approves access
+4. Token stored in `~/.grip/tokens/supabase.json`
+5. Token auto-refreshes when expired
+
+**Automatic token refresh:**
+
+The MCP proxy automatically refreshes expired tokens using refresh tokens. If refresh fails or token is expired without a refresh token, the server shows "OAuth login required" in the connection status.
+
+---
+
+## Tool Discovery
+
+When Grip starts, the MCP manager:
+
+1. Connects to all enabled MCP servers in parallel
+2. Calls `list_tools()` on each server
+3. Wraps discovered tools as Grip `MCPWrappedTool` instances
+4. Registers them in the tool registry with `mcp_[server]_[tool]` naming
+
+**Example:** GitHub MCP server exposes `search_repositories` tool:
+
+```
+Tool name in Grip: mcp_github_search_repositories
+Description: [MCP:github] Search for GitHub repositories by query
+```
+
+---
+
+## Tool Execution
+
+When an agent calls an MCP tool:
+
+1. Tool parameters are validated against the MCP tool's input schema
+2. Parameters are passed to the MCP server via `call_tool()`
+3. MCP server executes the tool and returns content blocks
+4. Text content is extracted and returned to the agent
+5. Errors are caught and returned as error messages
+
+**Cross-loop execution:**
+
+MCP sessions run on a background thread with their own event loop. Tool calls are scheduled on the MCP loop via `asyncio.run_coroutine_threadsafe()` to avoid deadlocks.
+
+---
+
+## Example: Filesystem MCP Server
+
+**Install:**
+```bash
+npm install -g @modelcontextprotocol/server-filesystem
+```
+
+**Configure:**
+```toml
+[tools.mcp_servers.filesystem]
+enabled = true
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/alice/Documents"]
+```
+
+**Available tools:**
+- `mcp_filesystem_read_file` — Read file contents
+- `mcp_filesystem_write_file` — Write to file
+- `mcp_filesystem_list_directory` — List directory contents
+- `mcp_filesystem_search_files` — Search for files by pattern
+
+**Usage in agent:**
+```python
+result = await mcp_filesystem_read_file(path="notes.txt")
+```
+
+---
+
+## Example: GitHub MCP Server
+
+**Configure:**
+```toml
+[tools.mcp_servers.github]
+enabled = true
+url = "https://mcp-server.github.com/sse"
+type = "sse"
+headers = {"Authorization" = "Bearer ghp_xxxxxxxxxxxx"}
+```
+
+**Available tools:**
+- `mcp_github_search_repositories` — Search for repos
+- `mcp_github_get_file_contents` — Read file from repo
+- `mcp_github_create_issue` — Open new issue
+- `mcp_github_create_pull_request` — Create PR
+
+**Usage in agent:**
+```python
+result = await mcp_github_search_repositories(
+    query="language:python stars:>1000",
+    sort="stars"
+)
+```
+
+---
+
+## Connection Status
+
+Check MCP server connection status:
+
+```bash
+grip mcp status
+```
+
+**Output:**
+```
+MCP Servers:
+
+  filesystem [connected]
+    Tools: 5
+    Transport: stdio
+    Command: npx -y @modelcontextprotocol/server-filesystem /Users/alice/Documents
+
+  github [connected]
+    Tools: 8
+    Transport: sse
+    URL: https://mcp-server.github.com/sse
+
+  supabase [error: OAuth login required]
+    Transport: sse
+    URL: https://mcp-server.supabase.com/sse
+    Run: grip mcp login supabase
+```
+
+---
+
+## Reconnection
+
+MCP servers can be reconnected manually:
+
+```bash
+grip mcp reconnect supabase
+```
+
+This disconnects the existing connection, re-reads the config, and attempts a new connection. Useful after:
+- Updating OAuth tokens
+- Changing server configuration
+- Recovering from connection failures
+
+---
+
+## Error Handling
+
+### MCP Package Not Installed
+
+```python
+result = await mcp_github_search_repositories(query="test")
+# Returns: "Error: MCP package not installed. Install with: pip install mcp>=1.0"
+```
+
+### OAuth Login Required
+
+```
+MCP 'supabase' requires authentication. Run: /mcp → select 'supabase' → Login
+```
+
+### Connection Timeout
+
+```
+Failed to connect HTTP MCP 'github': Timeout after 30.0 seconds
+```
+
+### Tool Execution Error
+
+```python
+result = await mcp_github_get_file_contents(
+    repo="nonexistent/repo",
+    path="README.md"
+)
+# Returns: "Error calling MCP tool 'get_file_contents' on 'github': 404 Not Found"
+```
+
+---
+
+## Best Practices
+
+1. **Use stdio for local servers** — faster and no network overhead
+2. **Use SSE for remote servers** — most compatible with existing MCP services
+3. **Set appropriate timeouts** for slow servers (default 30s)
+4. **Store OAuth tokens securely** — never commit to version control
+5. **Test servers individually** before enabling all
+6. **Monitor connection status** periodically to catch failures
+7. **Use environment variables** for API keys in stdio servers
+
+---
+
+## Limitations
+
+- **No resource support** — MCP resources not yet implemented
+- **No prompt support** — MCP prompts not exposed to agents
+- **No sampling support** — MCP sampling requests not implemented
+- **No progress updates** — long-running MCP tools don't report progress
+- **Single connection per server** — no connection pooling
+- **No automatic reconnection** — failed connections require manual intervention
+
+---
+
+## Implementation
+
+Defined in `grip/tools/mcp.py`. Uses:
+- `mcp.ClientSession` for MCP protocol handling
+- `mcp.client.stdio.stdio_client` for subprocess transport
+- `mcp.client.sse.sse_client` for Server-Sent Events transport
+- `mcp.client.streamable_http.streamablehttp_client` for HTTP transport
+- `asyncio.run_coroutine_threadsafe()` for cross-loop execution
+- OAuth token storage and refresh via `grip/security/token_store.py`
+- `MCPManager` for connection lifecycle management

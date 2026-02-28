@@ -1,0 +1,362 @@
+---
+title: Cost Optimization
+description: Reduce token usage with model tier routing, consolidation models, and cost-effective configurations
+---
+
+Grip AI provides multiple strategies to reduce LLM costs while maintaining quality for complex tasks.
+
+## Model Tier Routing
+
+Automatic model selection based on prompt complexity. Simple queries use cheap models, complex tasks use premium models.
+
+### Configuration
+
+From `grip/config/schema.py:136`:
+
+```python
+class ModelTiersConfig(BaseModel):
+    """Model overrides per complexity tier for the cost-aware router.
+    
+    Leave a tier empty to use agents.defaults.model for that complexity
+    level. Only tiers with a model set will be routed differently.
+    Example: set low to a fast/cheap model like gemini-flash, leave
+    medium empty (uses default), and set high to claude-opus.
+    """
+    
+    enabled: bool = Field(
+        default=False,
+        description="Enable automatic model routing based on prompt complexity.",
+    )
+    low: str = Field(
+        default="",
+        description="Model for simple queries (greetings, lookups, regex).",
+    )
+    medium: str = Field(
+        default="",
+        description="Model for moderate tasks (code changes, explanations).",
+    )
+    high: str = Field(
+        default="",
+        description="Model for complex tasks (architecture, refactors, debugging).",
+    )
+```
+
+### Setup
+
+Enable tiered routing in `~/.grip/config.json`:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": "openrouter/anthropic/claude-sonnet-4"
+    },
+    "model_tiers": {
+      "enabled": true,
+      "low": "openrouter/google/gemini-flash-2.0",
+      "medium": "",
+      "high": "openrouter/anthropic/claude-opus-4"
+    }
+  }
+}
+```
+
+<Tip>
+Leave `medium` empty to use your default model for medium-complexity tasks. Only override the tiers where cost savings matter most.
+</Tip>
+
+### How Complexity Detection Works
+
+The router analyzes prompt characteristics:
+
+**Low Complexity** (uses `low` model):
+- Greetings and small talk: "Hello", "How are you?"
+- Simple lookups: "What time is it?", "Current Bitcoin price"
+- Basic regex/formatting: "Extract emails from this text"
+- Single-step operations: "List files in /tmp"
+
+**Medium Complexity** (uses `medium` or default model):
+- Code changes: "Fix this bug", "Add error handling"
+- Explanations: "Explain how JWT works"
+- Multi-step tasks: "Search for X and summarize findings"
+- Data analysis: "Analyze this CSV and find trends"
+
+**High Complexity** (uses `high` model):
+- System design: "Design a scalable microservices architecture"
+- Large refactors: "Refactor this module to use async/await"
+- Debugging: "Find why this race condition occurs"
+- Research synthesis: "Compare React vs Vue for enterprise apps"
+
+### Cost Savings Example
+
+**Without Tier Routing**:
+```
+100 daily queries × Claude Sonnet-4 avg cost
+= 100 × $0.015 = $1.50/day = $45/month
+```
+
+**With Tier Routing** (70% low, 20% medium, 10% high):
+```
+70 × Gemini Flash ($0.0001) = $0.007
+20 × Claude Sonnet-4 ($0.015) = $0.30
+10 × Claude Opus-4 ($0.075) = $0.75
+Total: $1.057/day = $31.71/month (29% savings)
+```
+
+## Consolidation Model
+
+Use a cheaper model for session compaction and summarization.
+
+### Configuration
+
+From `grip/config/schema.py:91`:
+
+```python
+consolidation_model: str = Field(
+    default="",
+    description="LLM model for summarization/consolidation. Empty = use main model. "
+    "Set to a cheaper model (e.g. openrouter/google/gemini-flash-2.0) to save tokens.",
+)
+```
+
+Set in `~/.grip/config.json`:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": "openrouter/anthropic/claude-sonnet-4",
+      "consolidation_model": "openrouter/google/gemini-flash-2.0",
+      "auto_consolidate": true,
+      "memory_window": 50
+    }
+  }
+}
+```
+
+### How It Works
+
+When conversation history exceeds `2 × memory_window` messages, grip automatically:
+
+1. Sends old messages to the `consolidation_model`
+2. Generates a concise summary (typically 200-500 tokens)
+3. Replaces old messages with the summary
+4. Keeps recent `memory_window` messages intact
+
+**Example**:
+```
+Before consolidation: 120 messages (48K tokens)
+After consolidation: 50 recent messages + 1 summary (20K tokens)
+Savings: 28K tokens per subsequent request
+```
+
+### Manual Consolidation
+
+```bash
+# Interactive CLI
+grip agent
+> /compact
+
+# Via API
+curl -X POST http://localhost:18800/api/v1/agent/consolidate \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"session_key": "cli:default"}'
+```
+
+<Info>
+From `grip/engines/litellm_engine.py:138`, consolidation is implemented in the engine layer and works with any model combination.
+</Info>
+
+## Choosing Cost-Effective Models
+
+### Budget Models
+
+**Google Gemini Flash 2.0** (`openrouter/google/gemini-flash-2.0`)
+- **Cost**: ~$0.0001 per request (100x cheaper than Claude)
+- **Speed**: 2-3x faster than Sonnet
+- **Best for**: Lookups, simple Q&A, data extraction, summarization
+- **Limitations**: Weaker reasoning, less reliable tool use
+
+**GPT-4o Mini** (`openrouter/openai/gpt-4o-mini`)
+- **Cost**: ~$0.0005 per request (30x cheaper than Claude)
+- **Speed**: Very fast
+- **Best for**: Code formatting, regex tasks, simple refactors
+- **Limitations**: Shorter context, less creative
+
+**Claude Haiku** (`anthropic/claude-haiku-4`)
+- **Cost**: ~$0.003 per request (5x cheaper than Sonnet)
+- **Speed**: Fastest Claude model
+- **Best for**: Tool-heavy workflows, data processing, quick iterations
+- **Limitations**: Not as strong for complex reasoning
+
+### Premium Models
+
+**Claude Sonnet-4** (`anthropic/claude-sonnet-4`)
+- **Cost**: ~$0.015 per request
+- **Best for**: General-purpose tasks, code generation, analysis
+- **Sweet spot**: Best quality/cost ratio for most coding tasks
+
+**Claude Opus-4** (`openrouter/anthropic/claude-opus-4`)
+- **Cost**: ~$0.075 per request (5x more than Sonnet)
+- **Best for**: System design, complex debugging, research synthesis
+- **When to use**: Only when task quality justifies the cost
+
+**GPT-4 Turbo** (`openrouter/openai/gpt-4-turbo`)
+- **Cost**: ~$0.04 per request
+- **Best for**: Math, structured output, code execution validation
+- **Trade-off**: Cheaper than Opus, slightly different strengths
+
+## Memory Window Optimization
+
+Reduce tokens sent per request by limiting conversation history.
+
+### Configuration
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "memory_window": 30,
+      "auto_consolidate": true
+    }
+  }
+}
+```
+
+**Small Window** (`memory_window: 10-20`):
+- **Pros**: Very low token usage, fast responses
+- **Cons**: Agent forgets context quickly
+- **Best for**: Single-task sessions, tool-heavy automation
+
+**Medium Window** (`memory_window: 30-50`, default):
+- **Pros**: Good balance of cost and context retention
+- **Cons**: May need consolidation every 100 messages
+- **Best for**: General interactive use
+
+**Large Window** (`memory_window: 100-200`):
+- **Pros**: Excellent context retention, fewer consolidations
+- **Cons**: High token usage (2-5K tokens per request)
+- **Best for**: Complex multi-turn debugging or architecture discussions
+
+<Tip>
+From `grip/config/schema.py:81`, the default `memory_window` is 50 messages. Monitor your token usage and adjust based on typical conversation length.
+</Tip>
+
+## Max Tool Iterations Limit
+
+Prevent runaway costs from infinite tool loops.
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "max_tool_iterations": 15
+    }
+  }
+}
+```
+
+**How it works** (from `grip/config/schema.py:76`):
+- `0` = Unlimited iterations (default, see [long-running tasks](/advanced/long-running-tasks))
+- `N` = Stop after N tool call rounds, even if task is incomplete
+
+**Setting limits**:
+- **Simple tasks**: `max_tool_iterations: 5` (file operations, lookups)
+- **Code tasks**: `max_tool_iterations: 15` (build, test, fix)
+- **Research**: `max_tool_iterations: 10` (search, fetch, analyze)
+
+<Info>
+Each iteration costs 1K-8K tokens depending on tool output size. A 15-iteration task with an 8K-token model can consume 120K tokens total.
+</Info>
+
+## Semantic Caching
+
+Cache identical queries to avoid re-processing.
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "semantic_cache_enabled": true,
+      "semantic_cache_ttl": 3600
+    }
+  }
+}
+```
+
+**How it works** (from `grip/config/schema.py:100`):
+- Identical user messages return cached responses
+- Cache expires after `semantic_cache_ttl` seconds (default 1 hour)
+- Saves 100% of tokens for repeated queries
+
+**Best for**:
+- FAQ-style queries: "What time is it?", "Show me the logs"
+- Repeated analysis: Re-running the same report
+- Development: Testing the same prompt multiple times
+
+**Limitations**:
+- Only caches exact message matches (no fuzzy matching)
+- Session-specific (cache key includes session_key)
+- Stored in workspace `state/semantic_cache.db`
+
+## Token Budget Enforcement
+
+Set daily token limits to prevent cost overruns.
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "max_daily_tokens": 500000
+    }
+  }
+}
+```
+
+**How it works** (from `grip/config/schema.py:110`):
+- `0` = Unlimited (default)
+- `N` = Stop all agent runs after N total tokens used today
+- Counts both prompt tokens and completion tokens
+- Resets at midnight UTC
+
+**Example limits**:
+- **Light use**: `100,000` tokens/day (~$1.50 with Sonnet)
+- **Medium use**: `500,000` tokens/day (~$7.50 with Sonnet)
+- **Heavy use**: `2,000,000` tokens/day (~$30 with Sonnet)
+
+## Combined Cost Strategy
+
+Maximum savings configuration:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": "openrouter/anthropic/claude-sonnet-4",
+      "consolidation_model": "openrouter/google/gemini-flash-2.0",
+      "memory_window": 30,
+      "max_tool_iterations": 15,
+      "auto_consolidate": true,
+      "semantic_cache_enabled": true,
+      "semantic_cache_ttl": 7200,
+      "max_daily_tokens": 500000
+    },
+    "model_tiers": {
+      "enabled": true,
+      "low": "openrouter/google/gemini-flash-2.0",
+      "medium": "",
+      "high": "openrouter/anthropic/claude-opus-4"
+    },
+    "profiles": {
+      "budget": {
+        "model": "openrouter/google/gemini-flash-2.0",
+        "max_tokens": 4096,
+        "memory_window": 20,
+        "max_tool_iterations": 10
+      }
+    }
+  }
+}
+```
+
+**Estimated savings**: 40-60% compared to using Claude Sonnet-4 for all tasks with no optimizations.

@@ -1,0 +1,441 @@
+---
+title: Slack Channel
+description: Set up and configure a Slack bot using Socket Mode (no public URL required)
+---
+
+The Slack channel enables your Grip AI agent to interact with users through Slack workspaces using Socket Mode, which eliminates the need for a public URL or ngrok tunneling.
+
+## Features
+
+- **Socket Mode**: Outbound WebSocket connection (no public URL needed)
+- **Command support**: `/help`, `/new`, `/status`, `/model`, `/clear`, `/compact`, `/version`
+- **File attachments**: Send files directly in Slack channels
+- **Message splitting**: Handles messages up to 40,000 characters
+- **User allowlists**: Restrict bot access to specific user IDs
+- **Channel and DM support**: Works in both channels and direct messages
+
+## Prerequisites
+
+Install the Slack channel dependencies:
+
+```bash
+uv pip install grip[channels-slack]
+```
+
+This installs `slack-sdk` with Socket Mode support for bot functionality.
+
+## Creating a Slack Bot
+
+<Steps>
+
+### Step 1: Create Slack App
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps)
+2. Click "Create New App"
+3. Choose "From scratch"
+4. Enter an app name (e.g., "Grip AI Bot")
+5. Select the workspace to install the bot
+6. Click "Create App"
+
+### Step 2: Enable Socket Mode
+
+1. In your app settings, navigate to "Socket Mode" in the left sidebar
+2. Toggle "Enable Socket Mode" to ON
+3. You'll be prompted to create an app-level token:
+   - Enter a token name (e.g., "grip-socket-token")
+   - Add the `connections:write` scope
+   - Click "Generate"
+4. **Copy and save the app-level token** (starts with `xapp-`)
+
+<Warning>
+You can only view the app-level token once. Save it immediately! If you lose it, you'll need to generate a new one.
+</Warning>
+
+### Step 3: Configure Bot Scopes
+
+1. Navigate to "OAuth & Permissions" in the left sidebar
+2. Scroll down to "Scopes" → "Bot Token Scopes"
+3. Add these scopes:
+   - `chat:write` - Send messages
+   - `files:write` - Upload files
+   - `channels:history` - Read channel messages
+   - `groups:history` - Read private channel messages
+   - `im:history` - Read direct messages
+   - `mpim:history` - Read group direct messages
+
+### Step 4: Enable Event Subscriptions
+
+1. Navigate to "Event Subscriptions" in the left sidebar
+2. Toggle "Enable Events" to ON
+3. Under "Subscribe to bot events", add:
+   - `message.channels` - Messages in public channels
+   - `message.groups` - Messages in private channels
+   - `message.im` - Direct messages
+   - `message.mpim` - Group direct messages
+4. Click "Save Changes"
+
+### Step 5: Install App to Workspace
+
+1. Navigate to "OAuth & Permissions"
+2. Click "Install to Workspace"
+3. Review permissions and click "Allow"
+4. **Copy and save the Bot User OAuth Token** (starts with `xoxb-`)
+
+</Steps>
+
+## Configuration
+
+The Slack channel requires **two tokens**:
+
+1. **Bot Token** (`xoxb-...`): OAuth token for API calls
+2. **App Token** (`xapp-...`): App-level token for Socket Mode
+
+Add the Slack configuration to your `config.yaml`:
+
+```yaml
+channels:
+  slack:
+    enabled: true
+    token: "xoxb-YOUR-BOT-TOKEN"
+    extra:
+      app_token: "xapp-YOUR-APP-LEVEL-TOKEN"
+```
+
+### Environment Variables
+
+For better security, use environment variables:
+
+```yaml
+channels:
+  slack:
+    enabled: true
+    token: "${SLACK_BOT_TOKEN}"
+    extra:
+      app_token: "${SLACK_APP_TOKEN}"
+```
+
+Then set the environment variables:
+
+```bash
+export SLACK_BOT_TOKEN="xoxb-your-bot-token-here"
+export SLACK_APP_TOKEN="xapp-your-app-level-token-here"
+```
+
+### User Allowlist
+
+Restrict bot access to specific users:
+
+```yaml
+channels:
+  slack:
+    enabled: true
+    token: "${SLACK_BOT_TOKEN}"
+    extra:
+      app_token: "${SLACK_APP_TOKEN}"
+    allow_from:
+      - "U01ABC123"  # Your Slack user ID
+      - "U02DEF456"  # Another allowed user
+```
+
+<Note>
+To find your Slack user ID:
+1. Click your profile picture in Slack
+2. Select "Profile"
+3. Click "More" (three dots)
+4. Select "Copy member ID"
+</Note>
+
+If `allow_from` is empty or omitted, anyone in the workspace can use the bot.
+
+## Bot Commands
+
+The Slack bot supports these commands (defined in `channels/slack.py:27-35`). Commands can use either `!` or `/` prefix:
+
+### `/help` or `!help`
+
+Lists all available commands with descriptions.
+
+### `/new` or `!new`
+
+Starts a fresh conversation by clearing the session:
+
+```
+/new
+```
+
+### `/status` or `!status`
+
+Shows current session information:
+
+```
+/status
+```
+
+### `/model [name]` or `!model [name]`
+
+Shows the current model or switches to a different one:
+
+```
+/model
+```
+
+Shows current model.
+
+```
+/model gpt-4o
+```
+
+Switches to GPT-4.
+
+### `/clear` or `!clear`
+
+Clears the entire conversation history:
+
+```
+/clear
+```
+
+### `/compact` or `!compact`
+
+Summarizes and compresses the session history:
+
+```
+/compact
+```
+
+### `/version` or `!version`
+
+Shows the Grip AI version:
+
+```
+/version
+```
+
+## Message Handling
+
+The Slack channel processes messages through Socket Mode events (reference: `channels/slack.py:82-129`):
+
+### Text Messages
+
+All non-command text messages are forwarded to the agent for processing.
+
+### Commands
+
+Messages starting with `!` or `/` are checked against the command list. If the command is recognized, it's processed as a command.
+
+### Bot Messages Ignored
+
+Messages with `subtype` (bot messages, message changes, etc.) are automatically ignored to prevent loops.
+
+### Message Metadata
+
+Each message includes metadata:
+
+```python
+{
+    "ts": "1234567890.123456",     # Slack message timestamp
+    "team": "T01ABC123",           # Workspace ID
+    "command": "model",            # Command name (if applicable)
+    "arg": "gpt-4o"                # Command argument (if provided)
+}
+```
+
+## Socket Mode Architecture
+
+Socket Mode uses an **outbound WebSocket connection** from your Grip AI instance to Slack's servers. This means:
+
+- **No public URL required**: Your server doesn't need to be accessible from the internet
+- **No webhook setup**: No need to configure request URLs
+- **No ngrok/tunneling**: Works behind firewalls and NAT
+- **Simple deployment**: Easier to run locally or in private networks
+
+Implementation reference: `channels/slack.py:51-133`
+
+<Note>
+Socket Mode is perfect for development, testing, and private deployments. For high-scale production use, consider Event API with webhooks instead.
+</Note>
+
+## Sending Files from Agent
+
+The agent can send files to Slack channels using the `files_upload_v2` API (with automatic fallback to `files_upload` for older SDK versions).
+
+Implementation reference: `channels/slack.py:153-188`
+
+Example agent response with file:
+
+```python
+OutboundMessage(
+    channel="slack",
+    chat_id="C01ABC123",  # Channel ID
+    text="Here's the report you requested",
+    file_path="/path/to/report.pdf"
+)
+```
+
+The `text` field is sent as the `initial_comment` (appears above the file).
+
+## Message Length Limits
+
+Slack enforces a 40,000 character limit per message (much higher than Telegram and Discord). Long responses are automatically split on newline boundaries when possible.
+
+Implementation: `channels/base.py:78-101`
+
+## Channel IDs
+
+Slack uses channel IDs (not names) for message routing:
+
+- **Public channels**: IDs start with `C` (e.g., `C01ABC123`)
+- **Private channels**: IDs start with `G` (e.g., `G02DEF456`)
+- **Direct messages**: IDs start with `D` (e.g., `D03GHI789`)
+- **Group DMs**: IDs start with `G` (e.g., `G04JKL012`)
+
+<Note>
+To find a channel ID in Slack:
+1. Right-click the channel name
+2. Select "View channel details"
+3. Scroll down to find the Channel ID
+</Note>
+
+## Connection Process
+
+The Slack channel uses Socket Mode for connectivity (reference: `channels/slack.py:51-133`):
+
+<Steps>
+
+### Step 1: Initialize clients
+
+Creates `AsyncWebClient` (for sending messages) and `SocketModeClient` (for receiving events).
+
+### Step 2: Register event listener
+
+Registers an async event handler for incoming Socket Mode events.
+
+### Step 3: Connect WebSocket
+
+Launches an async task that connects to Slack's Socket Mode WebSocket endpoint.
+
+### Step 4: Process events
+
+As events arrive, the handler processes messages and sends acknowledgments back to Slack.
+
+</Steps>
+
+## Error Handling
+
+The channel implements graceful error handling:
+
+**Channel not found**: Logs error if channel ID is invalid
+
+**File not found**: Sends error message instead of file
+
+**API version fallback**: Tries `files_upload_v2`, falls back to `files_upload` for older SDK versions
+
+**Send failures**: Logs error and continues operation
+
+## Implementation Reference
+
+The Slack channel is implemented in `channels/slack.py`:
+
+- **Bot initialization**: `slack.py:51-80`
+- **Event handler**: `slack.py:82-129`
+- **Connection process**: `slack.py:131-133`
+- **Send methods**: `slack.py:144-188`
+- **Command list**: `slack.py:27-35`
+
+## Troubleshooting
+
+### Bot doesn't respond
+
+1. Check that both tokens are correct in your configuration
+2. Verify the bot is enabled: `channels.slack.enabled: true`
+3. Ensure Socket Mode is enabled in the Slack app settings
+4. Check that Event Subscriptions are configured with the correct events
+5. Verify you're not blocked by the `allow_from` list
+6. Check logs for connection errors
+
+### "slack-sdk not found" error
+
+Install the Slack channel dependencies:
+
+```bash
+uv pip install grip[channels-slack]
+```
+
+### "Slack app-level token is required" error
+
+You need to provide both the bot token and the app-level token:
+
+```yaml
+channels:
+  slack:
+    enabled: true
+    token: "xoxb-YOUR-BOT-TOKEN"
+    extra:
+      app_token: "xapp-YOUR-APP-LEVEL-TOKEN"  # Don't forget this!
+```
+
+### Bot connects but doesn't receive messages
+
+Check Event Subscriptions in the Slack app settings:
+
+1. Navigate to "Event Subscriptions"
+2. Verify "Enable Events" is ON
+3. Ensure these events are subscribed:
+   - `message.channels`
+   - `message.groups`
+   - `message.im`
+   - `message.mpim`
+4. Click "Save Changes" and reinstall the app if needed
+
+### Missing bot scopes error
+
+Add the required scopes in "OAuth & Permissions" → "Bot Token Scopes":
+
+- `chat:write`
+- `files:write`
+- `channels:history`
+- `groups:history`
+- `im:history`
+- `mpim:history`
+
+After adding scopes, reinstall the app to the workspace.
+
+### Bot responds to everyone (security concern)
+
+Add a user allowlist:
+
+```yaml
+channels:
+  slack:
+    enabled: true
+    token: "${SLACK_BOT_TOKEN}"
+    extra:
+      app_token: "${SLACK_APP_TOKEN}"
+    allow_from:
+      - "YOUR_USER_ID"
+```
+
+## Socket Mode vs Events API
+
+Socket Mode is one of two ways to receive events from Slack:
+
+| Feature | Socket Mode | Events API |
+|---------|-------------|------------|
+| Public URL | Not required | Required |
+| Setup complexity | Lower | Higher |
+| Scalability | Good for small/medium | Better for large scale |
+| Latency | Slightly higher | Lower |
+| Best for | Development, private networks | Production, high traffic |
+
+Grip AI uses Socket Mode by default for easier setup and deployment.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Message Bus" icon="diagram-project" href="/channels/overview">
+    Learn how channels integrate with the message bus
+  </Card>
+  <Card title="Telegram Setup" icon="telegram" href="/channels/telegram">
+    Set up a Telegram bot with rich command support
+  </Card>
+</CardGroup>

@@ -1,0 +1,462 @@
+---
+title: "Tools API"
+description: "List available tools and execute them directly via the REST API"
+---
+
+## Overview
+
+The Tools API provides access to the agent's tool registry. You can:
+
+1. **List all tools** - Get definitions of every tool the agent can use
+2. **Execute tools directly** - Invoke tools programmatically (gated by config)
+
+Direct tool execution is **disabled by default** because it allows arbitrary tool invocation including shell commands.
+
+## GET /api/v1/tools
+
+List all registered tool definitions with their parameters and descriptions.
+
+### Request
+
+```bash
+curl -X GET http://127.0.0.1:8080/api/v1/tools \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+No parameters required.
+
+### Response
+
+<ResponseField name="tools" type="array">
+  Array of tool definition objects. Each tool includes:
+  
+  <ResponseField name="name" type="string">
+    Tool name (e.g., `bash`, `read`, `write`, `glob`).
+  </ResponseField>
+  
+  <ResponseField name="description" type="string">
+    Human-readable description of what the tool does.
+  </ResponseField>
+  
+  <ResponseField name="parameters" type="object">
+    JSON Schema definition of the tool's parameters.
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="count" type="integer">
+  Total number of tools.
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "tools": [
+    {
+      "name": "bash",
+      "description": "Execute bash commands in the workspace",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "The bash command to execute"
+          },
+          "workdir": {
+            "type": "string",
+            "description": "Working directory (defaults to workspace root)"
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Command timeout in seconds"
+          }
+        },
+        "required": ["command"]
+      }
+    },
+    {
+      "name": "read",
+      "description": "Read file contents",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "filePath": {
+            "type": "string",
+            "description": "Absolute path to the file"
+          },
+          "offset": {
+            "type": "number",
+            "description": "Line offset (0-based)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max lines to read"
+          }
+        },
+        "required": ["filePath"]
+      }
+    },
+    {
+      "name": "write",
+      "description": "Write content to a file",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "filePath": {
+            "type": "string",
+            "description": "Absolute path to the file"
+          },
+          "content": {
+            "type": "string",
+            "description": "Content to write"
+          }
+        },
+        "required": ["filePath", "content"]
+      }
+    }
+  ],
+  "count": 3
+}
+```
+
+### Python Example
+
+```python
+import httpx
+
+url = "http://127.0.0.1:8080/api/v1/tools"
+headers = {"Authorization": f"Bearer {token}"}
+
+response = httpx.get(url, headers=headers)
+data = response.json()
+
+print(f"Available tools: {data['count']}\n")
+for tool in data['tools']:
+    print(f"- {tool['name']}: {tool['description']}")
+    required_params = tool['parameters'].get('required', [])
+    print(f"  Required: {', '.join(required_params)}")
+```
+
+## POST /api/v1/tools/{name}/execute
+
+Execute a tool directly by name. This endpoint is **disabled by default** for security.
+
+<Warning>
+Direct tool execution allows arbitrary code execution (including shell commands). Only enable this in trusted environments.
+</Warning>
+
+### Enabling Tool Execution
+
+Set the config flag to enable:
+
+```json
+{
+  "gateway": {
+    "api": {
+      "enable_tool_execute": true
+    }
+  }
+}
+```
+
+Restart the API server after changing this setting.
+
+### Request
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/tools/bash/execute \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "parameters": {
+      "command": "ls -la",
+      "workdir": "/home/user/workspace"
+    }
+  }'
+```
+
+<ParamField path="name" type="string" required>
+  The tool name (URL path parameter). Must match an existing tool from the registry.
+</ParamField>
+
+<ParamField body="parameters" type="object">
+  Tool-specific parameters as a JSON object. Structure varies by tool. Defaults to `{}`.
+</ParamField>
+
+### Response
+
+<ResponseField name="tool" type="string">
+  The tool name that was executed.
+</ResponseField>
+
+<ResponseField name="output" type="string">
+  The tool's output text. May include error messages if execution failed.
+</ResponseField>
+
+<ResponseField name="success" type="boolean">
+  `true` if execution succeeded, `false` if the output starts with "Error:".
+</ResponseField>
+
+### Example Response (Success)
+
+```json
+{
+  "tool": "bash",
+  "output": "total 48\ndrwxr-xr-x  5 user user 4096 Feb 28 10:00 .\ndrwxr-xr-x 12 user user 4096 Feb 28 09:30 ..\n-rw-r--r--  1 user user 1234 Feb 28 10:00 README.md\n",
+  "success": true
+}
+```
+
+### Example Response (Error)
+
+```json
+{
+  "tool": "read",
+  "output": "Error: File not found: /nonexistent/file.txt",
+  "success": false
+}
+```
+
+### Python Example
+
+```python
+import httpx
+
+url = "http://127.0.0.1:8080/api/v1/tools/bash/execute"
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Content-Type": "application/json"
+}
+payload = {
+    "parameters": {
+        "command": "git status",
+        "workdir": "/home/user/project"
+    }
+}
+
+response = httpx.post(url, headers=headers, json=payload)
+data = response.json()
+
+if data['success']:
+    print(f"Output:\n{data['output']}")
+else:
+    print(f"Error: {data['output']}")
+```
+
+### Error Responses
+
+**403 Forbidden** - Tool execution is disabled:
+
+```json
+{
+  "detail": "Direct tool execution is disabled. Set gateway.api.enable_tool_execute=true to enable."
+}
+```
+
+**404 Not Found** - Tool does not exist:
+
+```json
+{
+  "detail": "Tool 'nonexistent' not found"
+}
+```
+
+## Tool Security
+
+When executing tools, the following security measures apply:
+
+### Workspace Sandbox
+
+If `tools.restrict_to_workspace` is enabled, file tools (read, write, glob) are restricted to the workspace directory:
+
+```json
+{
+  "tools": {
+    "restrict_to_workspace": true
+  }
+}
+```
+
+Attempts to access files outside the workspace fail:
+
+```json
+{
+  "tool": "read",
+  "output": "Error: Access denied. Path /etc/passwd is outside workspace",
+  "success": false
+}
+```
+
+### Shell Command Timeouts
+
+Bash commands are subject to timeout limits:
+
+```json
+{
+  "tools": {
+    "shell_timeout": 120
+  }
+}
+```
+
+Default: 120 seconds. Commands exceeding this are terminated.
+
+### Deny Patterns
+
+Configurable shell command deny patterns prevent dangerous operations:
+
+```json
+{
+  "tools": {
+    "shell_deny_patterns": [
+      "rm -rf /",
+      ":(){ :|:& };:",
+      "dd if=/dev/zero"
+    ]
+  }
+}
+```
+
+Blocked commands return an error:
+
+```json
+{
+  "tool": "bash",
+  "output": "Error: Command denied by security policy",
+  "success": false
+}
+```
+
+## Common Tools
+
+Here are frequently used tools and their parameters:
+
+### bash
+
+Execute shell commands:
+
+```json
+{
+  "parameters": {
+    "command": "npm install",
+    "workdir": "/home/user/project",
+    "timeout": 300
+  }
+}
+```
+
+### read
+
+Read file contents:
+
+```json
+{
+  "parameters": {
+    "filePath": "/home/user/workspace/config.json",
+    "offset": 0,
+    "limit": 100
+  }
+}
+```
+
+### write
+
+Write to a file:
+
+```json
+{
+  "parameters": {
+    "filePath": "/home/user/workspace/output.txt",
+    "content": "Hello, world!"
+  }
+}
+```
+
+### glob
+
+Find files by pattern:
+
+```json
+{
+  "parameters": {
+    "pattern": "**/*.py",
+    "path": "/home/user/workspace"
+  }
+}
+```
+
+### grep
+
+Search file contents:
+
+```json
+{
+  "parameters": {
+    "pattern": "TODO|FIXME",
+    "include": "*.js",
+    "path": "/home/user/workspace"
+  }
+}
+```
+
+## MCP Tools
+
+Tools from MCP (Model Context Protocol) servers are also included in the registry:
+
+```json
+{
+  "name": "fetch_url",
+  "description": "Fetch content from a URL",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string",
+        "description": "The URL to fetch"
+      }
+    },
+    "required": ["url"]
+  }
+}
+```
+
+MCP tools are prefixed with the server name if there are conflicts.
+
+## Rate Limiting
+
+Both endpoints are subject to standard rate limits:
+- **Per-IP**: 60 requests/min
+- **Per-token**: 60 requests/min
+
+See [Overview - Rate Limits](/api/overview#rate-limits).
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use the Chat API for complex workflows">
+    The chat endpoint allows the agent to choose and chain tools intelligently. Direct execution is best for simple, scripted operations.
+  </Accordion>
+  
+  <Accordion title="Validate tool parameters before execution">
+    Fetch the tool definition first and validate parameters against the schema to avoid errors.
+  </Accordion>
+  
+  <Accordion title="Enable sandbox mode for file operations">
+    Set `tools.restrict_to_workspace: true` to prevent tools from accessing files outside the workspace.
+  </Accordion>
+  
+  <Accordion title="Set appropriate timeouts">
+    Long-running commands (builds, tests) need higher timeouts. Configure `shell_timeout` accordingly.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Chat API" icon="comments" href="/api/chat">
+    Let the agent choose and execute tools automatically
+  </Card>
+  <Card title="Management API" icon="gear" href="/api/management">
+    View system configuration and metrics
+  </Card>
+</CardGroup>

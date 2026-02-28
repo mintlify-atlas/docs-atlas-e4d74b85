@@ -1,0 +1,533 @@
+---
+title: "grip gateway"
+description: "Run the full Grip AI platform with channels, cron scheduler, heartbeat service, and REST API"
+---
+
+## Overview
+
+The `grip gateway` command starts the complete Grip AI platform as a long-running process. It connects all components:
+
+- **REST API server** - FastAPI + Uvicorn for HTTP endpoints
+- **Chat channels** - Telegram, Discord, Slack integration
+- **Cron scheduler** - Periodic task execution
+- **Heartbeat service** - Autonomous agent check-ins
+- **Message bus** - Internal event routing
+- **AI engine** - Processes all inbound messages
+
+## Usage
+
+```bash
+grip gateway [OPTIONS]
+```
+
+## What It Starts
+
+### 1. REST API Server
+
+HTTP API for programmatic access:
+
+- Chat endpoints (`/api/chat`)
+- Session management (`/api/sessions`)
+- Tool execution (`/api/tools`)
+- Health checks (`/api/health`)
+- MCP server management (`/api/mcp`)
+- Authentication with bearer tokens
+- Rate limiting and security middleware
+
+**Default:** `http://0.0.0.0:8080`
+
+### 2. Chat Channels
+
+Connects to configured messaging platforms:
+
+- **Telegram** - Bot API integration
+- **Discord** - Bot with slash commands
+- **Slack** - Bot with interactive features
+
+Each channel:
+- Receives messages from users
+- Routes through the message bus
+- Processes with the AI engine
+- Sends responses back to users
+- Maintains separate sessions per chat
+
+### 3. Cron Scheduler
+
+Executes scheduled tasks:
+
+- Runs jobs based on cron expressions
+- Sends prompts to the agent
+- Routes results to specified channels
+- Tracks execution history
+- Respects enable/disable state
+
+### 4. Heartbeat Service
+
+Autonomous agent check-ins:
+
+- Periodic self-initiated agent runs
+- System health monitoring
+- Proactive notifications
+- Memory updates
+- Configurable interval and reply destination
+
+### 5. Message Bus
+
+Internal event routing:
+
+- **Inbound queue** - Messages from channels to engine
+- **Outbound queue** - Responses from engine to channels
+- **Control commands** - `/new`, `/clear`, `/compact`, etc.
+- Async processing with backpressure handling
+
+## Options
+
+### --host / -H
+
+Override the bind address from config:
+
+```bash
+grip gateway --host 127.0.0.1
+grip gateway -H 0.0.0.0
+```
+
+**Default:** `0.0.0.0` (all interfaces)
+
+### --port / -p
+
+Override the bind port from config:
+
+```bash
+grip gateway --port 3000
+grip gateway -p 8080
+```
+
+**Default:** `8080`
+
+## Starting the Gateway
+
+### Basic Start
+
+```bash
+$ grip gateway
+
+Channels started: telegram, discord
+API server started: http://0.0.0.0:8080
+grip gateway running. Press Ctrl+C to stop.
+```
+
+### With Custom Port
+
+```bash
+$ grip gateway --port 3000
+
+Channels started: telegram
+API server started: http://0.0.0.0:3000
+grip gateway running. Press Ctrl+C to stop.
+```
+
+### With Verbose Logging
+
+```bash
+$ grip gateway --verbose
+
+[DEBUG] Loading config from ~/.grip/config.json
+[DEBUG] Initializing workspace: ~/grip/workspace
+[DEBUG] Creating LiteLLM engine with model: gpt-4o
+[DEBUG] Starting Telegram channel...
+Channels started: telegram
+[DEBUG] Starting API server on 0.0.0.0:8080
+API server started: http://0.0.0.0:8080
+[DEBUG] Starting cron service...
+[DEBUG] Starting heartbeat service...
+grip gateway running. Press Ctrl+C to stop.
+```
+
+## Graceful Shutdown
+
+The gateway handles shutdown signals gracefully:
+
+```bash
+^C
+Shutting down gateway...
+Gateway stopped.
+```
+
+**Process:**
+1. Receives SIGINT (Ctrl+C) or SIGTERM
+2. Stops accepting new messages
+3. Completes in-progress agent runs
+4. Shuts down cron and heartbeat services
+5. Disconnects all channels
+6. Stops API server
+7. Exits cleanly
+
+<Note>
+  Always use Ctrl+C or `kill <pid>` (not `kill -9`) to ensure clean shutdown and prevent data loss.
+</Note>
+
+## Channel Bot Commands
+
+When connected to chat channels, users can send these commands:
+
+### /new
+
+Start a fresh session:
+
+```
+User: /new
+Bot: Session reset. How can I help?
+```
+
+### /clear
+
+Clear all messages:
+
+```
+User: /clear
+Bot: Cleared 12 messages.
+```
+
+### /undo
+
+Remove last exchange:
+
+```
+User: /undo
+Bot: Last exchange removed.
+```
+
+### /compact
+
+Compress session history:
+
+```
+User: /compact
+Bot: Session compacted. 24 messages remain.
+```
+
+### /model
+
+Switch or show current model:
+
+```
+User: /model
+Bot: Current model: gpt-4o
+
+User: /model claude-sonnet-4
+Bot: Model switched to: claude-sonnet-4
+```
+
+### /status
+
+Show session information:
+
+```
+User: /status
+Bot: Session: telegram:123456
+     Messages: 15
+     Model: gpt-4o
+     Memory facts: ~89 lines
+     Trusted dirs: /home/user/projects
+```
+
+### /trust
+
+Manage trusted directories:
+
+```
+User: /trust
+Bot: Trusted directories:
+     ~/grip/workspace
+     
+User: /trust ~/projects/myapp
+Bot: Trusted: /home/user/projects/myapp
+
+User: /trust revoke ~/projects/myapp
+Bot: Revoked trust for: /home/user/projects/myapp
+```
+
+## Session Keys
+
+Each chat maintains a separate session using the format:
+
+```
+{channel}:{chat_id}
+```
+
+**Examples:**
+- `telegram:123456789`
+- `discord:987654321`
+- `slack:C01ABC123`
+- `cli:interactive`
+
+Sessions persist across gateway restarts and are stored in:
+
+```
+~/grip/workspace/sessions/{session_key}.json
+```
+
+## Configuration
+
+The gateway reads configuration from `~/.grip/config.json`:
+
+### Gateway Settings
+
+```json
+{
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "api": {
+      "max_request_body_bytes": 1048576,
+      "rate_limit_per_minute": 60,
+      "rate_limit_per_minute_per_ip": 10
+    }
+  }
+}
+```
+
+### Channel Configuration
+
+```json
+{
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "123456:ABC-DEF..."
+    },
+    "discord": {
+      "enabled": true,
+      "bot_token": "MTk4..."
+    },
+    "slack": {
+      "enabled": false,
+      "bot_token": "xoxb-...",
+      "signing_secret": "abc123..."
+    }
+  }
+}
+```
+
+### Cron Configuration
+
+```json
+{
+  "cron": {
+    "enabled": true,
+    "timezone": "America/New_York"
+  }
+}
+```
+
+### Heartbeat Configuration
+
+```json
+{
+  "heartbeat": {
+    "enabled": true,
+    "interval_minutes": 60,
+    "reply_to": "telegram:123456"
+  }
+}
+```
+
+<Note>
+  Set `heartbeat.interval_minutes` >= 60 to avoid excessive token usage. Each heartbeat triggers a full agent run.
+</Note>
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│                  Gateway Process                │
+├─────────────────────────────────────────────────┤
+│                                                 │
+│  ┌─────────────┐      ┌──────────────┐        │
+│  │  Telegram   │─────▶│              │        │
+│  │   Channel   │      │   Message    │        │
+│  └─────────────┘      │     Bus      │        │
+│                       │              │        │
+│  ┌─────────────┐      │   Inbound   │        │
+│  │  Discord    │─────▶│     ↓       │        │
+│  │   Channel   │      │   Engine    │        │
+│  └─────────────┘      │     ↓       │        │
+│                       │   Outbound  │        │
+│  ┌─────────────┐      │              │        │
+│  │    Cron     │─────▶└──────────────┘        │
+│  │  Scheduler  │              ↓               │
+│  └─────────────┘              ↓               │
+│                       ┌──────────────┐        │
+│  ┌─────────────┐     │   Channels   │        │
+│  │  Heartbeat  │     └──────────────┘        │
+│  │   Service   │                             │
+│  └─────────────┘                             │
+│                                               │
+│  ┌─────────────────────────────────────────┐ │
+│  │          REST API Server                │ │
+│  │  /api/chat  /api/sessions  /api/tools   │ │
+│  └─────────────────────────────────────────┘ │
+│                                               │
+└─────────────────────────────────────────────┘
+```
+
+## Monitoring
+
+### Health Check
+
+```bash
+curl http://localhost:8080/health
+```
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "version": "1.0.0",
+  "uptime_seconds": 3600
+}
+```
+
+### Channel Status
+
+Check logs for channel connection status:
+
+```bash
+grip gateway --verbose 2>&1 | grep -i channel
+```
+
+### API Logs
+
+Monitor API requests:
+
+```bash
+grip gateway --verbose 2>&1 | grep -i api
+```
+
+## Production Deployment
+
+### Using systemd
+
+Create `/etc/systemd/system/grip.service`:
+
+```ini
+[Unit]
+Description=Grip AI Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=grip
+WorkingDirectory=/home/grip
+ExecStart=/usr/local/bin/grip gateway
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Commands:**
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable grip
+sudo systemctl start grip
+sudo systemctl status grip
+sudo journalctl -u grip -f
+```
+
+### Using Docker
+
+Create `Dockerfile`:
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY . .
+CMD ["grip", "gateway"]
+```
+
+**Build and run:**
+```bash
+docker build -t grip-gateway .
+docker run -d -p 8080:8080 \
+  -v ~/.grip/config.json:/root/.grip/config.json \
+  -v ~/grip/workspace:/root/grip/workspace \
+  --name grip-gateway \
+  grip-gateway
+```
+
+### Using PM2
+
+```bash
+pm2 start "grip gateway" --name grip-gateway
+pm2 save
+pm2 startup
+```
+
+## Troubleshooting
+
+### Gateway won't start
+
+```bash
+# Check configuration
+grip config show
+
+# Verify workspace
+ls ~/grip/workspace
+
+# Test with verbose logging
+grip gateway --verbose
+```
+
+### Channel not connecting
+
+```bash
+# Verify bot tokens in config
+grip config show | grep -A5 channels
+
+# Check network connectivity
+curl -I https://api.telegram.org
+
+# Enable debug logs
+grip gateway --verbose 2>&1 | grep telegram
+```
+
+### API server errors
+
+```bash
+# Check port availability
+lsof -i :8080
+
+# Try different port
+grip gateway --port 3000
+
+# Check authentication
+curl -H "Authorization: Bearer $(grep auth_token ~/.grip/config.json | cut -d'"' -f4)" \
+  http://localhost:8080/api/health
+```
+
+### High memory usage
+
+```bash
+# Check session sizes
+du -h ~/grip/workspace/sessions/
+
+# Compact large sessions
+grip agent
+> /compact
+
+# Clear old sessions
+find ~/grip/workspace/sessions/ -mtime +30 -delete
+```
+
+## Related Commands
+
+- **[grip agent](/cli/agent)** - Interactive chat with the agent
+- **[grip serve](/cli/serve)** - Run API server only (no channels)
+- **[grip cron](/cli/cron)** - Manage scheduled tasks
+- **[grip config](/cli/config)** - Configure gateway settings

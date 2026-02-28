@@ -1,0 +1,276 @@
+---
+title: "Scheduler"
+description: "Natural language to cron expression conversion with task management"
+---
+
+## Overview
+
+The scheduler tool converts natural language scheduling phrases into standard cron expressions and manages scheduled tasks. Uses a rule-based parser (no LLM call) for instant conversion.
+
+## Tool
+
+### scheduler
+
+Manage scheduled tasks with natural language ('every day at 9am') or cron expressions.
+
+<ParamField path="action" type="string" required>
+  Action to perform: create, list, or delete
+</ParamField>
+
+<ParamField path="schedule" type="string">
+  Natural language or cron expression (for create action)
+</ParamField>
+
+<ParamField path="task_name" type="string">
+  Name/description of the scheduled task (for create action)
+</ParamField>
+
+<ParamField path="command" type="string">
+  Command or message to execute on schedule (for create action)
+</ParamField>
+
+<ParamField path="reply_to" type="string">
+  Session key to deliver results to (e.g. 'telegram:12345'). Required for channel delivery.
+</ParamField>
+
+<ParamField path="task_id" type="string">
+  Task ID to delete (for delete action)
+</ParamField>
+
+---
+
+## Actions
+
+### Create Task
+
+```python
+result = await scheduler(
+    action="create",
+    schedule="every day at 9am",
+    task_name="Daily standup reminder",
+    command="Send standup reminder to team",
+    reply_to="telegram:123456789"
+)
+```
+
+**Returns:**
+```
+Scheduled task created:
+  ID: cron_a3f8b2c1
+  Name: Daily standup reminder
+  Cron: 0 9 * * *
+  Schedule: every day at 9am
+  Prompt: Send standup reminder to team
+  Reply to: telegram:123456789
+```
+
+### List Tasks
+
+```python
+result = await scheduler(action="list")
+```
+
+**Returns:**
+```
+## Scheduled Tasks
+
+- **Daily standup reminder** (ID: cron_a3f8b2c1) [enabled]
+  Schedule: `0 9 * * *` | Prompt: Send standup reminder to team
+
+- **Weekly report** (ID: cron_7f2e9d4a) [enabled]
+  Schedule: `0 17 * * 5` | Prompt: Generate and send weekly report
+```
+
+### Delete Task
+
+```python
+result = await scheduler(
+    action="delete",
+    task_id="cron_a3f8b2c1"
+)
+```
+
+**Returns:**
+```
+Deleted scheduled task: cron_a3f8b2c1
+```
+
+---
+
+## Natural Language Patterns
+
+### Time-Based
+
+**Every N minutes/hours:**
+```python
+"every 5 minutes"   → */5 * * * *
+"every 30 minutes"  → */30 * * * *
+"every 2 hours"     → 0 */2 * * *
+"every hour"        → 0 * * * *
+"every minute"      → * * * * *
+```
+
+**Daily at specific time:**
+```python
+"every day at 9am"      → 0 9 * * *
+"every day at 5pm"      → 0 17 * * *
+"every day at 23"       → 0 23 * * *  (24-hour format)
+```
+
+**Weekly on specific day:**
+```python
+"every Monday at 9am"       → 0 9 * * 1
+"every Friday at 5pm"       → 0 17 * * 5
+"every Wednesday at 12pm"   → 0 12 * * 3
+```
+
+Supported days: Monday (1), Tuesday (2), Wednesday (3), Thursday (4), Friday (5), Saturday (6), Sunday (0)
+
+**Weekdays:**
+```python
+"every weekday at 9am"  → 0 9 * * 1-5
+"every weekday at 6pm"  → 0 18 * * 1-5
+```
+
+**Monthly:**
+```python
+"every month on the 1st"   → 0 0 1 * *
+"every month on the 15th"  → 0 0 15 * *
+```
+
+### Raw Cron Expressions
+
+You can also pass raw cron expressions:
+
+```python
+"*/15 * * * *"    → Every 15 minutes
+"0 0 * * 0"       → Every Sunday at midnight
+"0 */6 * * *"     → Every 6 hours
+"0 0 1 1 *"       → Every January 1st at midnight
+```
+
+---
+
+## Storage
+
+Scheduled tasks are stored in `workspace/cron/jobs.json`:
+
+```json
+[
+  {
+    "id": "cron_a3f8b2c1",
+    "name": "Daily standup reminder",
+    "schedule": "0 9 * * *",
+    "prompt": "Send standup reminder to team",
+    "enabled": true,
+    "last_run": null,
+    "created_at": "2026-02-28T10:30:00Z",
+    "reply_to": "telegram:123456789"
+  }
+]
+```
+
+---
+
+## Reply-To Channel Format
+
+The `reply_to` parameter specifies where task results should be delivered:
+
+**Format:** `channel:chat_id`
+
+**Examples:**
+```python
+reply_to="telegram:123456789"  # Telegram chat
+reply_to="discord:987654321"   # Discord channel
+reply_to="slack:C01ABC123"     # Slack channel
+```
+
+If omitted, results are logged to console only.
+
+---
+
+## Execution
+
+Scheduled tasks are executed by the cron daemon (separate from the tool). The daemon:
+
+1. Reads `workspace/cron/jobs.json` every minute
+2. Evaluates cron expressions against current time
+3. Executes matching tasks by spawning an agent with the `prompt`
+4. Sends results to the `reply_to` channel via `send_message`
+5. Updates `last_run` timestamp
+
+---
+
+## Error Handling
+
+### Invalid Schedule
+
+```python
+result = await scheduler(
+    action="create",
+    schedule="every bluesday at 25pm",
+    task_name="Test",
+    command="Test"
+)
+# Returns:
+# Error: could not parse schedule 'every bluesday at 25pm'.
+# Try formats like: 'every 5 minutes', 'every day at 9am',
+# 'every Monday at 3pm', or a raw cron expression like '*/5 * * * *'.
+```
+
+### Invalid Reply-To Format
+
+```python
+result = await scheduler(
+    action="create",
+    schedule="every day at 9am",
+    task_name="Test",
+    command="Test",
+    reply_to="invalid"
+)
+# Returns:
+# Error: invalid reply_to format 'invalid'.
+# Expected 'channel:chat_id' (e.g. 'telegram:12345').
+```
+
+### Task Not Found
+
+```python
+result = await scheduler(
+    action="delete",
+    task_id="nonexistent"
+)
+# Returns: "Error: no scheduled task found with ID 'nonexistent'."
+```
+
+---
+
+## Best Practices
+
+1. **Use natural language** for readability (converted to cron internally)
+2. **Provide descriptive task names** for easier identification
+3. **Set reply_to for channel delivery** — otherwise results only logged
+4. **Test schedules** with `list` action before relying on them
+5. **Delete unused tasks** to keep `jobs.json` clean
+6. **Use 24-hour format** for clarity (9am, 17pm, 23)
+
+---
+
+## Limitations
+
+- **No date-specific scheduling** (e.g. "every February 14th") — use raw cron
+- **No timezone support** — runs in server's local timezone
+- **Minute granularity only** — cannot schedule for specific seconds
+- **No task editing** — delete and recreate to change
+- **No execution history** — only stores `last_run` timestamp
+
+---
+
+## Implementation
+
+Defined in `grip/tools/scheduler.py`. Uses:
+- Rule-based pattern matching with regex for NL parsing
+- 12/24-hour time conversion for "am/pm" support
+- Day name to cron number mapping (Monday=1, Sunday=0)
+- Atomic JSON writes to `workspace/cron/jobs.json`
+- Migration system for legacy individual `.json` files

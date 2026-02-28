@@ -1,0 +1,149 @@
+---
+title: Configuration Overview
+description: Learn how to configure Grip AI using config files, environment variables, and the CLI
+---
+
+Grip AI uses a layered configuration system that combines JSON files, environment variables, and CLI commands.
+
+## Configuration File Location
+
+Grip stores its configuration in `~/.grip/config.json`. This file is created automatically during onboarding and can be edited manually or via the `grip config` CLI.
+
+```bash
+~/.grip/
+├── config.json          # Main configuration file
+├── workspace/           # Agent workspace directory
+└── state/               # Runtime state (trusted directories, sessions)
+```
+
+## Configuration Precedence
+
+Configuration values are loaded in the following order (later sources override earlier ones):
+
+1. **Default values** - Built-in defaults from schema
+2. **Config file** - `~/.grip/config.json`
+3. **Environment variables** - `GRIP_*` prefixed variables
+
+### Environment Variable Overrides
+
+All configuration options can be overridden using environment variables with the `GRIP_` prefix and double underscores (`__`) for nested keys:
+
+```bash
+# Override default model
+export GRIP_AGENTS__DEFAULTS__MODEL="anthropic/claude-sonnet-4"
+
+# Override temperature
+export GRIP_AGENTS__DEFAULTS__TEMPERATURE=0.9
+
+# Set API key
+export GRIP_PROVIDERS__ANTHROPIC__API_KEY="sk-ant-..."
+
+# Override shell timeout
+export GRIP_TOOLS__SHELL_TIMEOUT=120
+```
+
+<Note>
+Environment variables use `__` (double underscore) to represent nested object paths. For example, `GRIP_AGENTS__DEFAULTS__MODEL` maps to `config.agents.defaults.model` in JSON.
+</Note>
+
+## Using the CLI
+
+The `grip config` command provides an interactive interface to view and modify configuration:
+
+```bash
+# Launch interactive configuration editor
+grip config
+
+# View current configuration
+grip config show
+
+# Set a specific value
+grip config set agents.defaults.model "openrouter/anthropic/claude-sonnet-4"
+
+# Get a specific value
+grip config get agents.defaults.temperature
+
+# Add a provider API key
+grip config set providers.anthropic.api_key "sk-ant-..."
+```
+
+## Configuration Structure
+
+The configuration file has the following top-level sections:
+
+```json
+{
+  "platform": { /* Auto-detected platform info */ },
+  "agents": { /* Agent defaults, profiles, model tiers */ },
+  "providers": { /* LLM provider API keys */ },
+  "tools": { /* Tool configuration, MCP servers */ },
+  "channels": { /* Chat integrations (Telegram, Discord, Slack) */ },
+  "heartbeat": { /* Autonomous wake-up scheduling */ },
+  "cron": { /* Scheduled task execution */ },
+  "gateway": { /* API server and rate limiting */ }
+}
+```
+
+<CardGroup cols={2}>
+  <Card title="Agent Configuration" icon="robot" href="/configuration/agents">
+    Default settings, profiles, and model tiers
+  </Card>
+  <Card title="Provider Setup" icon="key" href="/configuration/providers">
+    API keys for LLM providers
+  </Card>
+  <Card title="Tool Settings" icon="wrench" href="/configuration/tools">
+    Web search, shell timeout, MCP servers
+  </Card>
+  <Card title="Security" icon="shield" href="/configuration/security">
+    Trust model, deny-lists, credential scrubbing
+  </Card>
+</CardGroup>
+
+## Configuration Validation
+
+Grip validates the configuration file on startup using Pydantic schemas. If validation fails, you'll see detailed error messages indicating which fields are invalid:
+
+```bash
+# Check if configuration is valid
+grip config validate
+```
+
+## Workspace Directory
+
+The workspace directory (`agents.defaults.workspace`) contains:
+
+- **Session history** - Conversation transcripts and memory
+- **Identity files** - AGENT.md, IDENTITY.md, SOUL.md, USER.md, SHIELD.md
+- **Tool outputs** - Generated files, artifacts
+- **State** - Trusted directories, token tracking
+
+Default location: `~/.grip/workspace`
+
+## Platform Detection
+
+Grip automatically detects your platform on startup:
+
+<ParamField path="platform.os" type="string" default="auto-detected">
+  Operating system: `darwin`, `linux`, or `windows`
+</ParamField>
+
+<ParamField path="platform.arch" type="string" default="auto-detected">
+  CPU architecture: `arm64`, `x86_64`, etc.
+</ParamField>
+
+<ParamField path="platform.python_version" type="string" default="auto-detected">
+  Python version running Grip
+</ParamField>
+
+This information helps tools select platform-appropriate commands (e.g., `open` vs `xdg-open`).
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configure Agents" icon="sliders" href="/configuration/agents">
+    Set default model, temperature, and memory settings
+  </Card>
+  <Card title="Add Providers" icon="plug" href="/configuration/providers">
+    Connect to OpenRouter, Anthropic, OpenAI, and more
+  </Card>
+</CardGroup>

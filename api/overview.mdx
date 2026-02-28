@@ -1,0 +1,218 @@
+---
+title: "REST API Overview"
+description: "Introduction to the Grip AI REST API, base URL configuration, versioning, rate limits, and security features"
+---
+
+## Introduction
+
+The Grip AI REST API provides programmatic access to the Grip agent platform over HTTP. The API is built with FastAPI and offers both synchronous request/response and Server-Sent Events (SSE) streaming for real-time agent interactions.
+
+All API endpoints require authentication via Bearer token and are protected by per-IP and per-token rate limiting.
+
+## Base URL
+
+The API server runs on the host and port configured in your `config.json`:
+
+```json
+{
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 8080
+  }
+}
+```
+
+Default base URL: `http://127.0.0.1:8080`
+
+All API routes are prefixed with `/api/v1`.
+
+<Warning>
+The API runs over HTTP only. For production deployments, use a reverse proxy (nginx, Caddy) to add HTTPS/TLS termination.
+</Warning>
+
+## Versioning
+
+The API uses URL path versioning. All current endpoints are under the `/api/v1` prefix:
+
+```
+http://127.0.0.1:8080/api/v1/chat
+http://127.0.0.1:8080/api/v1/sessions
+http://127.0.0.1:8080/api/v1/tools
+```
+
+Future versions will use `/api/v2`, `/api/v3`, etc.
+
+## Rate Limits
+
+The API implements sliding-window rate limiting at two levels:
+
+### Per-IP Rate Limit
+
+Applied **before authentication** to prevent brute-force attacks. Default: **60 requests per minute per IP address**.
+
+The client IP is extracted from the `X-Forwarded-For` header (for reverse proxies) or the direct connection address.
+
+### Per-Token Rate Limit
+
+Applied **after authentication** to prevent accidental token drain. Default: **60 requests per minute per token**.
+
+Configure rate limits in `config.json`:
+
+```json
+{
+  "gateway": {
+    "api": {
+      "rate_limit_per_minute": 60,
+      "rate_limit_per_minute_per_ip": 60
+    }
+  }
+}
+```
+
+### Rate Limit Responses
+
+When a rate limit is exceeded, the API returns HTTP 429:
+
+```json
+{
+  "detail": "Rate limit exceeded"
+}
+```
+
+Response headers:
+- `Retry-After`: Seconds until the oldest request expires
+- `X-RateLimit-Remaining`: Remaining requests in current window (0 when blocked)
+
+## Security Features
+
+### Bearer Token Authentication
+
+All endpoints except `/health` and OAuth callbacks require a Bearer token. Tokens are auto-generated on first startup if not configured.
+
+See [Authentication](/api/authentication) for details.
+
+### Request Size Limits
+
+Maximum request body size: **10 MB** (configurable)
+
+```json
+{
+  "gateway": {
+    "api": {
+      "max_request_body_bytes": 10485760
+    }
+  }
+}
+```
+
+### Security Headers
+
+All responses include security headers:
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `Strict-Transport-Security` (if HTTPS)
+
+### CORS
+
+Configure allowed origins for cross-origin requests:
+
+```json
+{
+  "gateway": {
+    "api": {
+      "cors_allowed_origins": ["https://app.example.com"]
+    }
+  }
+}
+```
+
+Allowed methods: `GET`, `POST`, `DELETE`
+
+Allowed headers: `Authorization`, `Content-Type`
+
+### Audit Logging
+
+All requests are logged with:
+- Client IP
+- Method and path
+- Response status
+- Processing time
+- Rate limit remaining
+
+### Workspace Sandbox
+
+When `tools.restrict_to_workspace` is enabled, file operations are restricted to the agent workspace directory.
+
+```json
+{
+  "tools": {
+    "restrict_to_workspace": true
+  }
+}
+```
+
+<Warning>
+Running with `host: "0.0.0.0"` makes the API accessible from all network interfaces. Always use a reverse proxy with HTTPS for production deployments.
+</Warning>
+
+## Error Responses
+
+The API uses standard HTTP status codes:
+
+| Code | Meaning |
+|------|----------|
+| 200 | Success |
+| 201 | Created (e.g., cron job created) |
+| 400 | Bad request (invalid parameters) |
+| 401 | Unauthorized (missing or invalid token) |
+| 403 | Forbidden (feature disabled) |
+| 404 | Not found (session, tool, workflow) |
+| 429 | Too many requests (rate limit) |
+| 502 | Bad gateway (agent execution failed) |
+| 503 | Service unavailable |
+
+Error response format:
+
+```json
+{
+  "detail": "Error message describing what went wrong"
+}
+```
+
+## Health Check
+
+The API provides public and authenticated health endpoints:
+
+```bash
+# Public (no auth required)
+curl http://127.0.0.1:8080/health
+
+# Authenticated (returns detailed status)
+curl http://127.0.0.1:8080/api/v1/health \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+Public response:
+```json
+{
+  "status": "healthy",
+  "uptime_seconds": 1234.5
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/api/authentication">
+    Learn how to generate and use Bearer tokens
+  </Card>
+  <Card title="Chat Endpoint" icon="comments" href="/api/chat">
+    Send messages to the agent with streaming support
+  </Card>
+  <Card title="Sessions" icon="folder" href="/api/sessions">
+    Manage conversation sessions
+  </Card>
+  <Card title="Tools" icon="wrench" href="/api/tools">
+    List and execute tools directly
+  </Card>
+</CardGroup>

@@ -1,0 +1,464 @@
+---
+title: Skills
+description: Extend agents with specialized knowledge through 15 built-in markdown skills and workspace-level overrides
+---
+
+## Overview
+
+Skills are markdown files that provide agents with specialized knowledge, workflows, and domain expertise. Grip AI ships with 15 built-in skills covering common development patterns, and supports workspace-specific overrides for project customization.
+
+## Architecture
+
+The skills system follows a three-tier loading hierarchy:
+
+```python
+# From grip/skills/loader.py:15-19
+# Skills are discovered from (in priority order — later sources override earlier):
+#   1. grip/skills/builtin/   — built-in skills shipped with grip
+#   2. ~/.agents/skills/      — global shared skills used by multiple agentic tools
+#   3. workspace/skills/      — user-installed skills specific to this workspace
+```
+
+<Note>
+Later sources override earlier ones. A skill named "code-review" in `workspace/skills/` will replace the built-in `code-review` skill.
+</Note>
+
+## Skill File Format
+
+Skills use markdown with optional YAML frontmatter:
+
+<CodeGroup>
+```markdown YAML Frontmatter (Preferred)
+---
+title: GitHub Expert
+description: Specialized knowledge for GitHub API and workflows
+category: automation
+always_loaded: false
+---
+
+## Overview
+
+This skill provides expertise in GitHub's REST and GraphQL APIs...
+
+## Workflows
+
+### Creating Pull Requests
+
+1. Check current branch
+2. Push commits to remote
+3. Use `gh pr create` command
+...
+```
+
+```markdown Legacy Format (H1 + Blockquote)
+# GitHub Expert
+
+> Specialized knowledge for GitHub API and workflows
+
+<!-- always_loaded -->
+
+## Overview
+
+This skill provides expertise in GitHub's REST and GraphQL APIs...
+```
+</CodeGroup>
+
+## File Discovery
+
+The loader supports two file structures:
+
+1. **Folder-based** (preferred): `skills/skill-name/SKILL.md`
+2. **Flat files**: `skills/skill-name.md`
+
+```python
+# From grip/skills/loader.py:85-98
+def _scan_directory(self, directory: Path) -> None:
+    """Scan a directory for skills in both flat and folder-based formats."""
+    # Folder-based: skill-name/SKILL.md
+    for path in sorted(directory.glob("*/SKILL.md")):
+        skill = self._parse_skill_file(path)
+        if skill:
+            self._skills[skill.name] = skill
+    
+    # Flat files: *.md (directly in the directory, not in subfolders)
+    for path in sorted(directory.glob("*.md")):
+        if path.is_file():
+            skill = self._parse_skill_file(path)
+            if skill:
+                self._skills[skill.name] = skill
+```
+
+## Built-in Skills
+
+Grip AI includes 15 pre-configured skills:
+
+```bash
+# From grip/skills/builtin/
+code-loader        # Load and analyze code efficiently
+code-review        # Code review best practices
+codebase-mapper    # Understand large codebases
+data-viz           # Data visualization guidance
+debug              # Debugging methodologies
+github             # GitHub workflows and API
+memory             # Persistent memory management
+optimization-rules # Performance optimization patterns
+project-planner    # Project planning frameworks
+self-analyzer      # Agent self-reflection
+skill-creator      # Create new skills
+summarize          # Text summarization techniques
+temporal-memory    # Time-based context tracking
+tmux               # Terminal multiplexer workflows
+tweet-writer       # Social media content creation
+```
+
+<Accordion title="Skill Details">
+- **code-loader**: Efficient patterns for loading large codebases without context overflow
+- **code-review**: Best practices for reviewing PRs and suggesting improvements
+- **codebase-mapper**: Strategies for understanding unfamiliar codebases
+- **data-viz**: Guidance on creating charts, graphs, and visual representations
+- **debug**: Systematic debugging methodologies (binary search, isolation, etc.)
+- **github**: GitHub CLI usage, API patterns, and workflow automation
+- **memory**: Long-term memory storage and retrieval patterns
+- **optimization-rules**: Performance tuning for common bottlenecks
+- **project-planner**: Breaking down projects into manageable tasks
+- **self-analyzer**: Meta-cognitive patterns for agent introspection
+- **skill-creator**: Template and guidelines for creating new skills
+- **summarize**: Techniques for condensing long text while preserving key info
+- **temporal-memory**: Tracking context across time (meetings, iterations, etc.)
+- **tmux**: Terminal multiplexer patterns for dev workflows
+- **tweet-writer**: Crafting engaging social media content
+</Accordion>
+
+## Skill Loading
+
+```python
+# From grip/skills/loader.py:56-83
+def scan(self) -> list[Skill]:
+    """Scan all skill directories and load skill metadata.
+    
+    Supports two formats:
+      - Flat files: skills_dir/*.md
+      - Folder-based: skills_dir/skill-name/SKILL.md (preferred)
+    
+    Scan order (later overrides earlier):
+      1. grip/skills/builtin/   — shipped with grip
+      2. ~/.agents/skills/      — global shared skills across agentic tools
+      3. workspace/skills/      — workspace-specific user overrides
+    """
+    self._skills.clear()
+    
+    # Built-in skills first (lowest priority)
+    if self._builtin_skills_dir.exists():
+        self._scan_directory(self._builtin_skills_dir)
+    
+    # Global shared skills (override built-ins)
+    if self._GLOBAL_SKILLS_DIR.exists():
+        self._scan_directory(self._GLOBAL_SKILLS_DIR)
+    
+    # Workspace skills (highest priority — override everything)
+    if self._workspace_skills_dir.exists():
+        self._scan_directory(self._workspace_skills_dir)
+    
+    logger.debug("Loaded {} skills", len(self._skills))
+    return list(self._skills.values())
+```
+
+## Installing Skills
+
+### CLI
+
+```bash
+# List available skills
+grip skills list
+
+# View skill details
+grip skills show code-review
+
+# Install from URL
+grip skills install https://example.com/my-skill.md
+
+# Install from file
+grip skills install ./custom-skill.md
+
+# Create new skill
+grip skills create my-skill --category automation
+
+# Remove skill
+grip skills remove my-skill
+```
+
+### Programmatic
+
+```python
+# From grip/skills/loader.py:120-133
+def install_skill(self, content: str, filename: str) -> Path:
+    """Save a skill file to the workspace skills directory.
+    
+    Returns the path of the created file.
+    """
+    self._workspace_skills_dir.mkdir(parents=True, exist_ok=True)
+    if not filename.endswith(".md"):
+        filename = f"{filename}.md"
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise ValueError(f"Invalid skill filename: {filename!r}")
+    target = self._workspace_skills_dir / filename
+    target.write_text(content, encoding="utf-8")
+    logger.info("Skill installed: {}", target)
+    return target
+```
+
+## Always-Loaded Skills
+
+Skills can be marked as `always_loaded` to automatically inject them into every agent session:
+
+```python
+# From grip/skills/loader.py:112-118
+def get_always_loaded_content(self) -> str:
+    """Return concatenated content of skills marked always_loaded."""
+    parts = []
+    for skill in self._skills.values():
+        if skill.always_loaded:
+            parts.append(f"## Skill: {skill.name}\n\n{skill.content}")
+    return "\n\n---\n\n".join(parts)
+```
+
+**Use cases for always-loaded skills:**
+- Project-specific coding standards
+- Company style guides
+- Security policies
+- Common troubleshooting steps
+
+<Note>
+Be cautious with always-loaded skills — they consume token budget on every request.
+</Note>
+
+## Skill Data Structure
+
+```python
+# From grip/skills/loader.py:29-42
+@dataclass(slots=True)
+class Skill:
+    """A loaded skill with parsed metadata."""
+    name: str              # Unique identifier
+    description: str       # One-line summary
+    content: str          # Full markdown content
+    source_path: Path     # File location
+    always_loaded: bool = False  # Auto-inject into system prompt
+    category: str = "general"    # Organizational tag
+    
+    @property
+    def display_name(self) -> str:
+        return self.name or self.source_path.stem
+```
+
+## Parsing Logic
+
+The loader handles both frontmatter and legacy formats:
+
+```python
+# From grip/skills/loader.py:180-229
+@staticmethod
+def _parse_skill_file(path: Path) -> Skill | None:
+    """Parse a SKILL.md file into a Skill object.
+    
+    Supports two formats:
+      1. YAML frontmatter (preferred):
+         ---
+         title: Skill Name
+         description: What it does
+         category: automation
+         always_loaded: true
+         ---
+         (content below)
+    
+      2. Legacy H1 + blockquote (backward compatible):
+         # Skill Name
+         > Description.
+         <!-- always_loaded -->
+         ... rest is content
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Cannot read skill file {}: {}", path, exc)
+        return None
+    
+    lines = text.strip().splitlines()
+    if not lines:
+        return None
+    
+    # Default name from directory or filename
+    name = path.stem
+    if path.name == "SKILL.md":
+        name = path.parent.name
+    
+    # Try YAML frontmatter first
+    frontmatter, remaining = SkillsLoader._parse_frontmatter(text)
+    if frontmatter:
+        fm_name = frontmatter.get("title") or frontmatter.get("name") or name
+        fm_desc = frontmatter.get("description", "")
+        fm_category = frontmatter.get("category", "general")
+        fm_always = frontmatter.get("always_loaded", "false").lower() in ("true", "yes", "1")
+        return Skill(
+            name=fm_name,
+            description=fm_desc,
+            content=remaining.strip(),
+            source_path=path,
+            always_loaded=fm_always,
+            category=fm_category,
+        )
+    
+    # Fallback: legacy H1 + blockquote parsing
+    # ... (omitted for brevity)
+```
+
+## Workspace Overrides
+
+To customize a built-in skill:
+
+1. Copy the skill to `workspace/skills/`:
+   ```bash
+   cp ~/.grip/skills/builtin/code-review/SKILL.md workspace/skills/code-review.md
+   ```
+
+2. Edit the workspace copy:
+   ```markdown
+   ---
+   title: Code Review
+   description: Custom review standards for this project
+   category: quality
+   always_loaded: true
+   ---
+   
+   ## Project-Specific Standards
+   
+   - All PRs must include tests
+   - Maximum function length: 50 lines
+   - Use TypeScript strict mode
+   ...
+   ```
+
+3. The workspace skill now overrides the built-in version
+
+## Integration with Agents
+
+Skills are injected into the system prompt via the ContextBuilder:
+
+```python
+# From grip/agent/context.py (conceptual)
+def build_system_prompt(self) -> str:
+    parts = []
+    
+    # Base instructions
+    parts.append(self._config.agents.system_prompt)
+    
+    # Always-loaded skills
+    always_loaded = self._skills_loader.get_always_loaded_content()
+    if always_loaded:
+        parts.append(always_loaded)
+    
+    # Tool documentation
+    parts.append(self._build_tools_section())
+    
+    # Active tasks
+    parts.append(self._build_todos_section())
+    
+    # Metadata
+    parts.append(self._build_metadata_section())
+    
+    return "\n\n".join(parts)
+```
+
+## Best Practices
+
+<Accordion title="Skill Design">
+- **Keep skills focused**: One domain per skill
+- **Use clear headings**: Structure with H2/H3 for easy scanning
+- **Provide examples**: Show, don't just tell
+- **Set categories**: Group related skills for discovery
+- **Write concise descriptions**: One sentence summaries
+</Accordion>
+
+<Accordion title="Content Guidelines">
+- **Start with overview**: Explain what the skill provides
+- **Include workflows**: Step-by-step procedures
+- **Add code snippets**: Concrete examples help
+- **Reference related skills**: Build a knowledge graph
+- **Keep it current**: Update as tools/practices evolve
+</Accordion>
+
+<Accordion title="Performance Considerations">
+- **Minimize always-loaded**: Each adds to every request
+- **Trim verbose content**: Focus on actionable information
+- **Use workspace skills**: Override only what you need
+- **Archive unused skills**: Move to `~/.agents/skills/archive/`
+</Accordion>
+
+## Creating Custom Skills
+
+Use the skill-creator skill as a template:
+
+```markdown
+---
+title: API Integration Expert
+description: Best practices for integrating third-party APIs
+category: integration
+always_loaded: false
+---
+
+## Overview
+
+This skill provides guidance on integrating external APIs with proper
+error handling, rate limiting, and caching strategies.
+
+## Core Principles
+
+1. **Always handle errors gracefully**: Wrap API calls in try-catch
+2. **Respect rate limits**: Implement exponential backoff
+3. **Cache aggressively**: Reduce API calls where possible
+4. **Log everything**: Track requests for debugging
+
+## Common Patterns
+
+### Retry Logic
+
+```python
+import backoff
+
+@backoff.on_exception(backoff.expo, requests.RequestException, max_tries=5)
+def fetch_data(url: str) -> dict:
+    response = requests.get(url)
+    response.raise_for_status()
+    return response.json()
+```
+
+### Rate Limiting
+
+```python
+from ratelimit import limits, sleep_and_retry
+
+@sleep_and_retry
+@limits(calls=100, period=60)
+def api_call():
+    return requests.get("https://api.example.com/data")
+```
+
+## Checklist
+
+- [ ] Error handling implemented
+- [ ] Rate limiting configured
+- [ ] Caching strategy defined
+- [ ] Logging added
+- [ ] Tests written
+
+## Related Skills
+
+- [debug](/skills/debug) — Debugging API issues
+- [optimization-rules](/skills/optimization-rules) — Performance tuning
+```
+
+## Related Features
+
+- [Task Tracking](/features/task-tracking) — Plan skill-based workflows
+- [Workflows](/features/workflows) — Orchestrate skill usage across steps
+- [MCP Servers](/features/mcp-servers) — Extend capabilities beyond skills

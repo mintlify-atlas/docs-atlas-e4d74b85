@@ -1,0 +1,503 @@
+---
+title: "Management API"
+description: "System status, configuration, cron jobs, skills, memory, metrics, and workflows"
+---
+
+## Overview
+
+The Management API provides read-only access to system state and limited write operations for cron job management. It includes endpoints for:
+
+- System status and configuration (read-only)
+- Cron job CRUD operations
+- Skills listing
+- Memory and history search
+- Metrics snapshots
+- Workflow definitions
+
+<Info>
+Deliberately excluded: config mutation, skill installation, and hooks management. These operations are too dangerous for remote HTTP access.
+</Info>
+
+## System Status
+
+### GET /api/v1/status
+
+Get system status (equivalent to `grip status` CLI command).
+
+#### Request
+
+```bash
+curl -X GET http://127.0.0.1:8080/api/v1/status \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+#### Response
+
+<ResponseField name="model" type="string">
+  Default LLM model.
+</ResponseField>
+
+<ResponseField name="max_tokens" type="integer">
+  Maximum tokens per request.
+</ResponseField>
+
+<ResponseField name="temperature" type="number">
+  Sampling temperature (0.0-1.0).
+</ResponseField>
+
+<ResponseField name="max_tool_iterations" type="integer">
+  Maximum tool execution iterations.
+</ResponseField>
+
+<ResponseField name="workspace" type="string">
+  Absolute path to the workspace directory.
+</ResponseField>
+
+<ResponseField name="session_count" type="integer">
+  Number of active sessions.
+</ResponseField>
+
+<ResponseField name="sandbox_enabled" type="boolean">
+  Whether file tools are restricted to the workspace.
+</ResponseField>
+
+<ResponseField name="shell_timeout" type="integer">
+  Shell command timeout in seconds.
+</ResponseField>
+
+<ResponseField name="mcp_server_count" type="integer">
+  Number of configured MCP servers.
+</ResponseField>
+
+<ResponseField name="channels" type="object">
+  Status of communication channels (telegram, discord, slack).
+</ResponseField>
+
+<ResponseField name="heartbeat_enabled" type="boolean">
+  Whether the heartbeat system is enabled.
+</ResponseField>
+
+<ResponseField name="heartbeat_interval_minutes" type="integer">
+  Heartbeat check interval.
+</ResponseField>
+
+<ResponseField name="tool_execute_enabled" type="boolean">
+  Whether direct tool execution via API is enabled.
+</ResponseField>
+
+#### Example Response
+
+```json
+{
+  "model": "claude-4.5-sonnet",
+  "max_tokens": 8192,
+  "temperature": 0.7,
+  "max_tool_iterations": 25,
+  "workspace": "/home/user/.grip/workspace",
+  "session_count": 12,
+  "sandbox_enabled": true,
+  "shell_timeout": 120,
+  "mcp_server_count": 3,
+  "channels": {
+    "telegram": true,
+    "discord": false,
+    "slack": false
+  },
+  "heartbeat_enabled": true,
+  "heartbeat_interval_minutes": 30,
+  "tool_execute_enabled": false
+}
+```
+
+## Configuration
+
+### GET /api/v1/config
+
+Get the full configuration with secrets masked.
+
+#### Request
+
+```bash
+curl -X GET http://127.0.0.1:8080/api/v1/config \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+#### Response
+
+<ResponseField name="config" type="object">
+  Full configuration object with all secrets masked. API keys, tokens, and long alphanumeric strings are replaced with `abc***xyz` format.
+</ResponseField>
+
+#### Example Response
+
+```json
+{
+  "config": {
+    "agents": {
+      "defaults": {
+        "model": "claude-4.5-sonnet",
+        "max_tokens": 8192,
+        "temperature": 0.7
+      }
+    },
+    "gateway": {
+      "host": "127.0.0.1",
+      "port": 8080,
+      "api": {
+        "auth_token": "grip***cdef",
+        "rate_limit_per_minute": 60
+      }
+    },
+    "channels": {
+      "telegram": {
+        "enabled": true,
+        "bot_token": "1234***5678"
+      }
+    }
+  }
+}
+```
+
+<Note>
+Secrets are masked using the same logic as `grip config show`. API keys, tokens, and credentials show only first and last 4 characters.
+</Note>
+
+## Cron Jobs
+
+### GET /api/v1/cron
+
+List all configured cron jobs.
+
+#### Request
+
+```bash
+curl -X GET http://127.0.0.1:8080/api/v1/cron \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+#### Response
+
+```json
+{
+  "jobs": [
+    {
+      "id": "daily-backup",
+      "name": "Daily Backup",
+      "schedule": "0 2 * * *",
+      "prompt": "Run the backup script",
+      "reply_to": "telegram:123456789",
+      "enabled": true,
+      "last_run": 1709125200.5,
+      "next_run": 1709211600.0
+    }
+  ],
+  "count": 1
+}
+```
+
+### POST /api/v1/cron
+
+Create a new cron job.
+
+#### Request
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/cron \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Weekly Report",
+    "schedule": "0 9 * * MON",
+    "prompt": "Generate the weekly analytics report",
+    "reply_to": "telegram:123456789"
+  }'
+```
+
+<ParamField body="name" type="string" required>
+  Job name (1-128 characters).
+</ParamField>
+
+<ParamField body="schedule" type="string" required>
+  Cron schedule expression (5-128 characters). Format: `minute hour day month weekday`.
+</ParamField>
+
+<ParamField body="prompt" type="string" required>
+  The prompt to send to the agent when the job runs (1-10,000 characters).
+</ParamField>
+
+<ParamField body="reply_to" type="string">
+  Optional channel to send the response to. Format: `telegram:<user-id>`, `discord:<user-id>`, or `slack:<user-id>`. Max 256 characters.
+</ParamField>
+
+#### Response (201 Created)
+
+```json
+{
+  "created": true,
+  "job": {
+    "id": "weekly-report",
+    "name": "Weekly Report",
+    "schedule": "0 9 * * MON",
+    "prompt": "Generate the weekly analytics report",
+    "reply_to": "telegram:123456789",
+    "enabled": true,
+    "next_run": 1709539200.0
+  }
+}
+```
+
+### DELETE /api/v1/cron/{job_id}
+
+Delete a cron job by ID.
+
+#### Request
+
+```bash
+curl -X DELETE http://127.0.0.1:8080/api/v1/cron/weekly-report \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+#### Response
+
+```json
+{
+  "deleted": true,
+  "job_id": "weekly-report"
+}
+```
+
+### POST /api/v1/cron/{job_id}/enable
+
+Enable a disabled cron job.
+
+#### Request
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/cron/weekly-report/enable \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+#### Response
+
+```json
+{
+  "enabled": true,
+  "job_id": "weekly-report"
+}
+```
+
+### POST /api/v1/cron/{job_id}/disable
+
+Disable a cron job without deleting it.
+
+#### Request
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/cron/weekly-report/disable \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+#### Response
+
+```json
+{
+  "disabled": true,
+  "job_id": "weekly-report"
+}
+```
+
+## Skills
+
+### GET /api/v1/skills
+
+List all loaded agent skills.
+
+#### Request
+
+```bash
+curl -X GET http://127.0.0.1:8080/api/v1/skills \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+#### Response
+
+```json
+{
+  "skills": [
+    {
+      "name": "python-dev",
+      "description": "Python development tools and best practices",
+      "always_loaded": true,
+      "source": "/home/user/.grip/skills/python-dev/SKILL.md"
+    },
+    {
+      "name": "web-research",
+      "description": "Research and summarize web content",
+      "always_loaded": false,
+      "source": "/home/user/.grip/skills/web-research/SKILL.md"
+    }
+  ],
+  "count": 2
+}
+```
+
+## Memory
+
+### GET /api/v1/memory
+
+Read the contents of MEMORY.md (persistent agent memory).
+
+#### Request
+
+```bash
+curl -X GET http://127.0.0.1:8080/api/v1/memory \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+#### Response
+
+```json
+{
+  "content": "# Project Notes\n\n- User prefers Python over JavaScript\n- Deployment target: AWS Lambda\n- Database: PostgreSQL 15\n",
+  "length": 123
+}
+```
+
+### GET /api/v1/memory/search
+
+Search HISTORY.md for lines matching a query.
+
+#### Request
+
+```bash
+curl -X GET "http://127.0.0.1:8080/api/v1/memory/search?q=deployment" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+<ParamField query="q" type="string" required>
+  Search query (1-500 characters).
+</ParamField>
+
+#### Response
+
+```json
+{
+  "query": "deployment",
+  "results": [
+    "2026-02-28 10:15: Configured deployment pipeline for production",
+    "2026-02-27 14:30: Discussed deployment strategy with team"
+  ],
+  "count": 2
+}
+```
+
+## Metrics
+
+### GET /api/v1/metrics
+
+Get in-memory metrics snapshot.
+
+#### Request
+
+```bash
+curl -X GET http://127.0.0.1:8080/api/v1/metrics \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+#### Response
+
+```json
+{
+  "metrics": {
+    "requests_total": 1234,
+    "requests_success": 1180,
+    "requests_error": 54,
+    "avg_response_time_ms": 342.5,
+    "total_tokens": 456789,
+    "total_cost_usd": 12.34,
+    "tools_called": {
+      "bash": 234,
+      "read": 567,
+      "write": 123
+    }
+  }
+}
+```
+
+## Workflows
+
+### GET /api/v1/workflows
+
+List all saved workflow definitions.
+
+#### Request
+
+```bash
+curl -X GET http://127.0.0.1:8080/api/v1/workflows \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+#### Response
+
+```json
+{
+  "workflows": [
+    {
+      "name": "code-review",
+      "description": "Automated code review process",
+      "step_count": 5
+    },
+    {
+      "name": "deploy-prod",
+      "description": "Production deployment workflow",
+      "step_count": 8
+    }
+  ],
+  "count": 2
+}
+```
+
+### GET /api/v1/workflows/{name}
+
+Get a workflow definition by name.
+
+#### Request
+
+```bash
+curl -X GET http://127.0.0.1:8080/api/v1/workflows/code-review \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+#### Response
+
+```json
+{
+  "workflow": {
+    "name": "code-review",
+    "description": "Automated code review process",
+    "steps": [
+      {
+        "name": "Run linter",
+        "tool": "bash",
+        "parameters": {"command": "npm run lint"}
+      },
+      {
+        "name": "Run tests",
+        "tool": "bash",
+        "parameters": {"command": "npm test"}
+      }
+    ]
+  }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="MCP API" icon="plug" href="/api/mcp">
+    Manage MCP servers and OAuth
+  </Card>
+  <Card title="Tools API" icon="wrench" href="/api/tools">
+    List and execute tools
+  </Card>
+</CardGroup>

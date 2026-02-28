@@ -1,0 +1,284 @@
+---
+title: Docker Deployment
+description: Build and run Grip AI in Docker containers with volume mounts and environment variables
+---
+
+## Overview
+
+Grip AI is Docker-ready and can be fully configured via environment variables. The official Dockerfile uses a multi-stage build with Python 3.12 and includes Node.js for Claude Agent SDK support.
+
+## Building the Image
+
+Clone the repository and build from source:
+
+```bash
+git clone https://github.com/5unnykum4r/grip-ai.git
+cd grip-ai
+docker build -t grip .
+```
+
+The Dockerfile creates a non-root user (`grip:1000`) for security and exposes port `18800` by default.
+
+## Running with Claude Agent SDK (Recommended)
+
+The Claude Agent SDK is the primary engine for Anthropic Claude models:
+
+<CodeGroup>
+```bash Basic
+docker run -d \
+  -p 18800:18800 \
+  -e ANTHROPIC_API_KEY="sk-ant-..." \
+  -v ~/.grip:/home/grip/.grip \
+  --name grip-agent \
+  grip
+```
+
+```bash With Telegram
+docker run -d \
+  -p 18800:18800 \
+  -e ANTHROPIC_API_KEY="sk-ant-..." \
+  -e GRIP_CHANNELS__TELEGRAM__ENABLED="true" \
+  -e GRIP_CHANNELS__TELEGRAM__TOKEN="bot-token" \
+  -v ~/.grip:/home/grip/.grip \
+  --name grip-agent \
+  grip
+```
+
+```bash With Multiple Channels
+docker run -d \
+  -p 18800:18800 \
+  -e ANTHROPIC_API_KEY="sk-ant-..." \
+  -e GRIP_CHANNELS__TELEGRAM__ENABLED="true" \
+  -e GRIP_CHANNELS__TELEGRAM__TOKEN="telegram-bot-token" \
+  -e GRIP_CHANNELS__DISCORD__ENABLED="true" \
+  -e GRIP_CHANNELS__DISCORD__TOKEN="discord-bot-token" \
+  -e GRIP_CHANNELS__SLACK__ENABLED="true" \
+  -e GRIP_CHANNELS__SLACK__TOKEN="slack-bot-token" \
+  -v ~/.grip:/home/grip/.grip \
+  --name grip-agent \
+  grip
+```
+</CodeGroup>
+
+## Running with LiteLLM Engine
+
+For non-Claude models (OpenAI, DeepSeek, Groq, Gemini, Ollama, etc.):
+
+<CodeGroup>
+```bash OpenAI
+docker run -d \
+  -p 18800:18800 \
+  -e GRIP_AGENTS__DEFAULTS__ENGINE="litellm" \
+  -e GRIP_AGENTS__DEFAULTS__MODEL="openai/gpt-4o" \
+  -e GRIP_PROVIDERS__OPENAI__API_KEY="sk-..." \
+  -v ~/.grip:/home/grip/.grip \
+  --name grip-agent \
+  grip
+```
+
+```bash OpenRouter
+docker run -d \
+  -p 18800:18800 \
+  -e GRIP_AGENTS__DEFAULTS__ENGINE="litellm" \
+  -e GRIP_AGENTS__DEFAULTS__MODEL="openrouter/google/gemini-2.5-pro" \
+  -e GRIP_PROVIDERS__OPENROUTER__API_KEY="sk-or-..." \
+  -v ~/.grip:/home/grip/.grip \
+  --name grip-agent \
+  grip
+```
+
+```bash DeepSeek
+docker run -d \
+  -p 18800:18800 \
+  -e GRIP_AGENTS__DEFAULTS__ENGINE="litellm" \
+  -e GRIP_AGENTS__DEFAULTS__MODEL="deepseek/deepseek-chat" \
+  -e GRIP_PROVIDERS__DEEPSEEK__API_KEY="sk-..." \
+  -v ~/.grip:/home/grip/.grip \
+  --name grip-agent \
+  grip
+```
+
+```bash Local Ollama
+docker run -d \
+  -p 18800:18800 \
+  -e GRIP_AGENTS__DEFAULTS__ENGINE="litellm" \
+  -e GRIP_AGENTS__DEFAULTS__MODEL="ollama/llama3.3" \
+  -e GRIP_PROVIDERS__OLLAMA__API_BASE="http://host.docker.internal:11434" \
+  -v ~/.grip:/home/grip/.grip \
+  --name grip-agent \
+  grip
+```
+</CodeGroup>
+
+## Volume Mounts
+
+Grip requires persistent storage for configuration, workspace, and session data:
+
+| Host Path | Container Path | Purpose |
+|-----------|---------------|----------|
+| `~/.grip` | `/home/grip/.grip` | Config, workspace, sessions, memory |
+| `~/.grip/workspace` | `/home/grip/.grip/workspace` | Agent workspace files |
+| `~/.grip/config.json` | `/home/grip/.grip/config.json` | Main configuration |
+
+### Custom Workspace
+
+To use a different workspace directory:
+
+```bash
+docker run -d \
+  -p 18800:18800 \
+  -e ANTHROPIC_API_KEY="sk-ant-..." \
+  -e GRIP_AGENTS__DEFAULTS__WORKSPACE="/app/workspace" \
+  -v /path/to/workspace:/app/workspace \
+  -v ~/.grip:/home/grip/.grip \
+  --name grip-agent \
+  grip
+```
+
+<Warning>
+Always mount `~/.grip` to persist configuration and session data. Without this volume, all data is lost when the container stops.
+</Warning>
+
+## Port Mapping
+
+Grip gateway listens on port `18800` by default:
+
+```bash
+# Default port mapping
+docker run -p 18800:18800 ...
+
+# Custom host port
+docker run -p 8080:18800 ...
+
+# Change container port via config
+docker run -p 8080:8080 \
+  -e GRIP_GATEWAY__PORT=8080 \
+  ...
+```
+
+## Docker Compose
+
+Create a `docker-compose.yml` for easier management:
+
+```yaml docker-compose.yml
+version: '3.8'
+
+services:
+  grip:
+    build: .
+    image: grip:latest
+    container_name: grip-agent
+    ports:
+      - "18800:18800"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GRIP_CHANNELS__TELEGRAM__ENABLED=true
+      - GRIP_CHANNELS__TELEGRAM__TOKEN=${TELEGRAM_BOT_TOKEN}
+      - GRIP_GATEWAY__HOST=0.0.0.0
+    volumes:
+      - ~/.grip:/home/grip/.grip
+    restart: unless-stopped
+    user: "1000:1000"
+```
+
+Then create a `.env` file:
+
+```bash .env
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+```
+
+Run with:
+
+```bash
+docker-compose up -d
+```
+
+## Container Management
+
+```bash
+# View logs
+docker logs grip-agent
+
+# Follow logs
+docker logs -f grip-agent
+
+# Stop container
+docker stop grip-agent
+
+# Start container
+docker start grip-agent
+
+# Restart container
+docker restart grip-agent
+
+# Remove container
+docker rm grip-agent
+
+# Execute commands inside container
+docker exec -it grip-agent grip status
+docker exec -it grip-agent grip config show
+```
+
+## Health Checks
+
+Add a health check to your Docker run command:
+
+```bash
+docker run -d \
+  -p 18800:18800 \
+  -e ANTHROPIC_API_KEY="sk-ant-..." \
+  -v ~/.grip:/home/grip/.grip \
+  --health-cmd="curl -f http://localhost:18800/health || exit 1" \
+  --health-interval=30s \
+  --health-timeout=10s \
+  --health-retries=3 \
+  --name grip-agent \
+  grip
+```
+
+Or in `docker-compose.yml`:
+
+```yaml
+healthcheck:
+  test: ["CMD", "curl", "-f", "http://localhost:18800/health"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 10s
+```
+
+## Resource Limits
+
+Limit CPU and memory usage:
+
+```bash
+docker run -d \
+  -p 18800:18800 \
+  -e ANTHROPIC_API_KEY="sk-ant-..." \
+  -v ~/.grip:/home/grip/.grip \
+  --memory="2g" \
+  --memory-swap="2g" \
+  --cpus="2.0" \
+  --name grip-agent \
+  grip
+```
+
+Or in `docker-compose.yml`:
+
+```yaml
+deploy:
+  resources:
+    limits:
+      cpus: '2.0'
+      memory: 2G
+    reservations:
+      cpus: '1.0'
+      memory: 1G
+```
+
+## Next Steps
+
+- [Configure environment variables](/deployment/environment-variables) for production
+- [Review self-hosting security](/deployment/self-hosting) best practices
+- [Set up Telegram bot](/channels/telegram) for mobile access

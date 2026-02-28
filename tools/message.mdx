@@ -1,0 +1,248 @@
+---
+title: "Messaging Tools"
+description: "Send messages and files to users through Telegram, Discord, Slack, or CLI"
+---
+
+## Overview
+
+Messaging tools let agents communicate with users immediately through the active channel, without waiting for the full agent loop to finish. Useful for subagents, long-running tasks, and progress updates.
+
+## Tools
+
+### send_message
+
+Send a text message to the user immediately via the configured channel.
+
+<ParamField path="text" type="string" required>
+  Message text to send to the user
+</ParamField>
+
+<ParamField path="channel" type="string">
+  Target channel (telegram, discord, slack). Omit to use the current session's channel.
+</ParamField>
+
+<ParamField path="chat_id" type="string">
+  Target chat/channel ID on the platform. Required when channel is specified.
+</ParamField>
+
+**Example:**
+```python
+# Send to current session
+await send_message(text="Task completed successfully!")
+
+# Send to specific Telegram chat
+await send_message(
+    text="Report ready for review",
+    channel="telegram",
+    chat_id="123456789"
+)
+```
+
+**Returns:** Confirmation message or error if callback fails.
+
+---
+
+### send_file
+
+Send a file to the user as an attachment. Provide the absolute path to an existing file.
+
+<ParamField path="file_path" type="string" required>
+  Absolute path to the file to send
+</ParamField>
+
+<ParamField path="caption" type="string">
+  Optional caption or description for the file
+</ParamField>
+
+<ParamField path="channel" type="string">
+  Target channel (telegram, discord, slack). Omit to use the current session's channel.
+</ParamField>
+
+<ParamField path="chat_id" type="string">
+  Target chat/channel ID on the platform. Required when channel is specified.
+</ParamField>
+
+**Example:**
+```python
+# Send to current session
+await send_file(
+    file_path="/workspace/Downloads/2026-02-28/report.pdf",
+    caption="Monthly analysis report"
+)
+
+# Send to specific Discord channel
+await send_file(
+    file_path="/workspace/output/chart.png",
+    caption="Sales trends visualization",
+    channel="discord",
+    chat_id="987654321"
+)
+```
+
+**Returns:** Confirmation message or error if file not found or callback fails.
+
+---
+
+## Channel Behavior
+
+### Telegram
+
+- **Messages:** Sent as regular text messages with Markdown formatting support
+- **Files:** Images sent as photos, others as document attachments
+- **Captions:** Displayed below images/documents
+
+### Discord
+
+- **Messages:** Sent as regular messages with Discord Markdown support
+- **Files:** Uploaded as attachments with optional captions
+- **Captions:** Displayed as message text above the attachment
+
+### Slack
+
+- **Messages:** Posted to the workspace/channel
+- **Files:** Uploaded with optional comments
+- **Captions:** Displayed as file comments
+
+### CLI Mode
+
+When running in CLI mode (no active channel):
+
+- **Messages:** Logged to console with `[Agent Message]` prefix
+- **Files:** File path logged with `[Agent File]` prefix
+- **Returns:** "Message logged (no active channel)" or "File ready (no active channel)"
+
+---
+
+## Use Cases
+
+### Progress Updates
+
+```python
+await send_message(text="Step 1/5: Analyzing data...")
+# ... perform analysis ...
+await send_message(text="Step 2/5: Generating report...")
+# ... generate report ...
+await send_message(text="Step 5/5: Complete!")
+await send_file(
+    file_path="/workspace/Downloads/2026-02-28/final_report.pdf",
+    caption="Analysis complete"
+)
+```
+
+### Subagent Communication
+
+Subagents use `send_message` to report results back to the user:
+
+```python
+# Main agent spawns subagent
+await spawn(task="Analyze logs for errors")
+
+# Subagent completes and sends result
+await send_message(text="Log analysis complete: found 3 critical errors")
+await send_file(
+    file_path="/workspace/Downloads/2026-02-28/error_log.txt",
+    caption="Detailed error log"
+)
+```
+
+### Multi-Channel Delivery
+
+Send the same result to multiple channels:
+
+```python
+report_path = "/workspace/Downloads/2026-02-28/sales_report.pdf"
+
+# Send to Telegram
+await send_file(
+    file_path=report_path,
+    channel="telegram",
+    chat_id="123456789",
+    caption="Daily sales report"
+)
+
+# Send to Discord
+await send_file(
+    file_path=report_path,
+    channel="discord",
+    chat_id="987654321",
+    caption="Daily sales report"
+)
+```
+
+---
+
+## Callback System
+
+The messaging tools delegate actual sending to callbacks registered at construction:
+
+```python
+async def send_telegram_message(session_key: str, text: str):
+    # Send via Telegram Bot API
+    await bot.send_message(chat_id=session_key, text=text)
+
+async def send_telegram_file(session_key: str, file_path: str, caption: str):
+    # Send file via Telegram Bot API
+    await bot.send_document(
+        chat_id=session_key,
+        document=open(file_path, 'rb'),
+        caption=caption
+    )
+
+tools = create_message_tools(
+    callback=send_telegram_message,
+    file_callback=send_telegram_file
+)
+```
+
+If no callback is set, messages/files are logged to console.
+
+---
+
+## Error Handling
+
+### File Not Found
+
+```python
+await send_file(file_path="/nonexistent/file.pdf")
+# Returns: "Error: File not found: /nonexistent/file.pdf"
+```
+
+### Callback Failure
+
+```python
+await send_message(text="Hello")
+# If callback raises exception:
+# Returns: "Error sending message: [exception details]"
+```
+
+### Invalid Session Key
+
+```python
+await send_message(
+    text="Test",
+    channel="telegram",
+    chat_id="invalid"
+)
+# Callback receives "telegram:invalid" as session_key
+# Behavior depends on callback implementation
+```
+
+---
+
+## Best Practices
+
+1. **Use send_message for progress updates** to keep users informed
+2. **Use send_file instead of telling users** to check local folders
+3. **Add captions to files** for context
+4. **Check file exists** before sending (or handle errors gracefully)
+5. **Target specific channels** only when needed (defaults to current session)
+
+---
+
+## Implementation
+
+Defined in `grip/tools/message.py`. Uses:
+- Async callback system for channel integration
+- `inspect.iscoroutinefunction()` to handle sync/async callbacks
+- Session key format: `channel:chat_id` for cross-channel delivery
+- Graceful fallback to logging when no callback is set

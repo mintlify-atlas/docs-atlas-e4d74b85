@@ -1,0 +1,294 @@
+---
+title: Agent Configuration
+description: Configure default agent behavior, profiles, and model tiers for cost-aware routing
+---
+
+The `agents` section controls how Grip's AI agents behave, which models they use, and how they manage context and memory.
+
+## Agent Defaults
+
+Default parameters applied to every agent run unless overridden by profiles or CLI flags.
+
+### Model Selection
+
+<ParamField path="agents.defaults.model" type="string" default="openrouter/anthropic/claude-sonnet-4">
+  Default LLM model in `provider/model` format.
+  
+  Examples:
+  - `openrouter/anthropic/claude-sonnet-4`
+  - `anthropic/claude-sonnet-4-20250514`
+  - `openai/gpt-4o`
+  - `deepseek/deepseek-chat`
+</ParamField>
+
+<ParamField path="agents.defaults.provider" type="string" default="">
+  Explicit provider name to override prefix-based detection.
+  
+  Useful when model names are ambiguous (e.g., `openai/gpt-oss-120b` on OpenRouter).
+  
+  Options: `openrouter`, `anthropic`, `openai`, `deepseek`, `groq`, `gemini`, etc.
+</ParamField>
+
+<ParamField path="agents.defaults.engine" type="string" default="claude_sdk">
+  Agent execution engine.
+  
+  - `claude_sdk` - Primary engine using Claude's Agent SDK (Claude models only)
+  - `litellm` - Fallback engine supporting any model via LiteLLM
+</ParamField>
+
+<ParamField path="agents.defaults.sdk_model" type="string" default="claude-sonnet-4-6">
+  Claude model to use when `engine=claude_sdk`.
+  
+  Options:
+  - `claude-opus-4-6`
+  - `claude-sonnet-4-6`
+  - `claude-haiku-4-5-20251001`
+</ParamField>
+
+### Generation Parameters
+
+<ParamField path="agents.defaults.max_tokens" type="integer" default="8192" min="1" max="200000">
+  Maximum tokens the LLM can generate per response.
+</ParamField>
+
+<ParamField path="agents.defaults.temperature" type="float" default="0.7" min="0.0" max="2.0">
+  Sampling temperature for LLM responses.
+  
+  - Lower (0.0-0.5): More deterministic, focused
+  - Medium (0.5-1.0): Balanced creativity
+  - Higher (1.0-2.0): More creative, varied
+</ParamField>
+
+### Execution Control
+
+<ParamField path="agents.defaults.max_tool_iterations" type="integer" default="0" min="0">
+  Maximum LLM-tool round-trips before the agent stops.
+  
+  - `0` = unlimited (default)
+  - Set to a positive number to limit agent autonomy
+</ParamField>
+
+<ParamField path="agents.defaults.dry_run" type="boolean" default="false">
+  When true, tools simulate execution without writing files or running commands.
+  
+  Useful for testing agent behavior safely.
+</ParamField>
+
+### Memory and Context
+
+<ParamField path="agents.defaults.memory_window" type="integer" default="50" min="5" max="500">
+  Number of recent messages to include in LLM context.
+  
+  Larger values provide more context but consume more tokens.
+</ParamField>
+
+<ParamField path="agents.defaults.auto_consolidate" type="boolean" default="true">
+  Automatically consolidate old messages when session exceeds 2x memory window.
+  
+  Summarizes older messages to reduce token usage while preserving key information.
+</ParamField>
+
+<ParamField path="agents.defaults.consolidation_model" type="string" default="">
+  LLM model for summarization/consolidation.
+  
+  - Empty string = use main model
+  - Set to a cheaper model (e.g., `openrouter/google/gemini-flash-2.0`) to save tokens
+</ParamField>
+
+<ParamField path="agents.defaults.enable_self_correction" type="boolean" default="true">
+  When true, the agent reflects on failed tool calls before proceeding.
+  
+  Improves reliability but adds extra LLM calls for error recovery.
+</ParamField>
+
+### Caching and Rate Limiting
+
+<ParamField path="agents.defaults.semantic_cache_enabled" type="boolean" default="true">
+  Cache LLM responses for identical queries to save tokens and latency.
+</ParamField>
+
+<ParamField path="agents.defaults.semantic_cache_ttl" type="integer" default="3600" min="60" max="86400">
+  Time-to-live for cached responses in seconds (default: 1 hour).
+</ParamField>
+
+<ParamField path="agents.defaults.max_daily_tokens" type="integer" default="0" min="0">
+  Maximum total tokens (prompt + completion) per day.
+  
+  - `0` = unlimited
+  - Set a limit to control costs
+</ParamField>
+
+### Workspace
+
+<ParamField path="agents.defaults.workspace" type="string" default="~/.grip/workspace">
+  Root workspace directory for agent files, sessions, and memory.
+</ParamField>
+
+<ParamField path="agents.defaults.sdk_permission_mode" type="string" default="acceptEdits">
+  SDK permission mode for file operations.
+  
+  - `acceptEdits` - Auto-accept file edits (default)
+  - `bypassPermissions` - Skip all permission checks
+  - `default` - Prompt for each operation
+</ParamField>
+
+## Model Tiers (Cost-Aware Routing)
+
+Automatic model routing based on prompt complexity. Allows using cheaper models for simple tasks and powerful models for complex ones.
+
+<ParamField path="agents.model_tiers.enabled" type="boolean" default="false">
+  Enable automatic model routing based on prompt complexity.
+</ParamField>
+
+<ParamField path="agents.model_tiers.low" type="string" default="">
+  Model for simple queries (greetings, lookups, regex).
+  
+  Example: `openrouter/google/gemini-flash-2.0`
+</ParamField>
+
+<ParamField path="agents.model_tiers.medium" type="string" default="">
+  Model for moderate tasks (code changes, explanations).
+  
+  Leave empty to use `agents.defaults.model`.
+</ParamField>
+
+<ParamField path="agents.model_tiers.high" type="string" default="">
+  Model for complex tasks (architecture, refactors, debugging).
+  
+  Example: `anthropic/claude-opus-4-6`
+</ParamField>
+
+### Example Configuration
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": "openrouter/anthropic/claude-sonnet-4",
+      "temperature": 0.7,
+      "max_tokens": 8192,
+      "memory_window": 50
+    },
+    "model_tiers": {
+      "enabled": true,
+      "low": "openrouter/google/gemini-flash-2.0",
+      "medium": "",
+      "high": "anthropic/claude-opus-4-6"
+    }
+  }
+}
+```
+
+## Agent Profiles
+
+Named profiles with custom models, tool subsets, and system prompts. Profiles let you create specialized agents for specific tasks.
+
+<ParamField path="agents.profiles.{name}.model" type="string" default="">
+  Model override for this profile. Empty = inherit from defaults.
+</ParamField>
+
+<ParamField path="agents.profiles.{name}.max_tokens" type="integer" default="0">
+  Max tokens override. 0 = inherit from defaults.
+</ParamField>
+
+<ParamField path="agents.profiles.{name}.temperature" type="float" default="-1.0">
+  Temperature override. -1.0 = inherit from defaults.
+</ParamField>
+
+<ParamField path="agents.profiles.{name}.max_tool_iterations" type="integer" default="0">
+  Max iterations override. 0 = inherit from defaults.
+</ParamField>
+
+<ParamField path="agents.profiles.{name}.tools_allowed" type="array" default="[]">
+  Tool names this profile can use. Empty = all tools.
+  
+  Supports wildcards: `["read", "write", "mcp__*"]`
+</ParamField>
+
+<ParamField path="agents.profiles.{name}.tools_denied" type="array" default="[]">
+  Tool names explicitly blocked for this profile.
+</ParamField>
+
+<ParamField path="agents.profiles.{name}.system_prompt_file" type="string" default="">
+  Workspace-relative path to a custom identity file.
+  
+  Example: `agents/researcher.md`
+</ParamField>
+
+### Example Profiles
+
+```json
+{
+  "agents": {
+    "profiles": {
+      "researcher": {
+        "model": "openrouter/google/gemini-flash-2.0",
+        "tools_allowed": ["web_search", "read", "write"],
+        "system_prompt_file": "agents/researcher.md"
+      },
+      "coder": {
+        "model": "anthropic/claude-sonnet-4",
+        "tools_denied": ["web_search"],
+        "max_tool_iterations": 20
+      },
+      "safe_agent": {
+        "tools_denied": ["bash", "shell"]
+      }
+    }
+  }
+}
+```
+
+### Using Profiles
+
+```bash
+# Use a specific profile
+grip chat --profile researcher
+
+# Environment variable
+export GRIP_PROFILE=coder
+grip chat
+```
+
+## CLI Overrides
+
+All agent settings can be overridden via CLI flags:
+
+```bash
+# Override model
+grip chat --model "anthropic/claude-opus-4-6"
+
+# Override temperature
+grip chat --temperature 0.9
+
+# Set max iterations
+grip chat --max-iterations 10
+
+# Dry run mode
+grip chat --dry-run
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Choosing Models">
+    - **Development/Testing**: Use faster, cheaper models like `gemini-flash` or `gpt-4o-mini`
+    - **Production**: Use `claude-sonnet-4` for balanced performance
+    - **Complex Tasks**: Use `claude-opus-4` for architecture and refactoring
+    - **Cost Optimization**: Enable model tiers to route automatically
+  </Accordion>
+  
+  <Accordion title="Memory Management">
+    - Default `memory_window=50` works for most conversations
+    - Increase to 100-200 for complex, long-running tasks
+    - Enable `auto_consolidate` to prevent context overflow
+    - Use a cheap `consolidation_model` to reduce costs
+  </Accordion>
+  
+  <Accordion title="Safety Controls">
+    - Set `max_tool_iterations` for untrusted environments
+    - Use `dry_run=true` to test agent behavior
+    - Create profiles with `tools_denied` for restricted agents
+    - Monitor `max_daily_tokens` to control costs
+  </Accordion>
+</AccordionGroup>

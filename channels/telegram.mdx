@@ -1,0 +1,375 @@
+---
+title: Telegram Channel
+description: Complete guide to setting up and using the Telegram bot integration with Grip AI
+---
+
+The Telegram channel provides a full-featured bot interface with rich command support, media handling, and automatic message formatting.
+
+## Features
+
+- **Rich bot commands**: `/start`, `/help`, `/new`, `/status`, `/model`, `/trust`, `/undo`, `/clear`, `/compact`
+- **Media support**: Photos, documents, and voice messages (caption processing)
+- **Markdown formatting**: Automatic conversion to Telegram HTML
+- **Message splitting**: Handles messages up to 4,096 characters with intelligent splitting
+- **File attachments**: Send photos and documents from the agent
+- **User allowlists**: Restrict bot access to specific user IDs
+- **Typing indicator**: Shows "typing..." while processing
+
+## Prerequisites
+
+Install the Telegram channel dependencies:
+
+```bash
+uv pip install grip[channels-telegram]
+```
+
+This installs `python-telegram-bot` (async native) for bot functionality.
+
+## Creating a Telegram Bot
+
+<Steps>
+
+### Step 1: Start BotFather
+
+Open Telegram and search for [@BotFather](https://t.me/botfather), the official bot creation tool.
+
+### Step 2: Create new bot
+
+Send `/newbot` to BotFather and follow the prompts:
+
+1. Choose a display name (e.g., "My Grip AI Bot")
+2. Choose a unique username ending in "bot" (e.g., "my_grip_ai_bot")
+
+### Step 3: Save the bot token
+
+BotFather will respond with your bot token. It looks like:
+
+```
+1234567890:ABCdefGHIjklMNOpqrsTUVwxyz123456789
+```
+
+<Warning>
+Keep your bot token secret! Anyone with this token can control your bot.
+</Warning>
+
+### Step 4: Configure bot commands (optional)
+
+To register commands in Telegram's UI, send `/setcommands` to BotFather, select your bot, and paste:
+
+```
+start - Welcome message
+help - List available commands
+new - Start a fresh conversation
+status - Show session info
+model - Show or switch AI model
+trust - Trust a directory
+undo - Remove last exchange
+clear - Clear conversation history
+compact - Summarize and compress history
+```
+
+<Note>
+Grip automatically registers these commands via the Bot API when it starts, so this step is optional.
+</Note>
+
+</Steps>
+
+## Configuration
+
+Add the Telegram configuration to your `config.yaml`:
+
+```yaml
+channels:
+  telegram:
+    enabled: true
+    token: "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz123456789"
+```
+
+### Environment Variables
+
+For better security, use environment variables:
+
+```yaml
+channels:
+  telegram:
+    enabled: true
+    token: "${TELEGRAM_BOT_TOKEN}"
+```
+
+Then set the environment variable:
+
+```bash
+export TELEGRAM_BOT_TOKEN="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz123456789"
+```
+
+### User Allowlist
+
+Restrict bot access to specific users:
+
+```yaml
+channels:
+  telegram:
+    enabled: true
+    token: "${TELEGRAM_BOT_TOKEN}"
+    allow_from:
+      - "123456789"   # Your Telegram user ID
+      - "987654321"   # Another allowed user
+```
+
+<Note>
+To find your Telegram user ID, send a message to [@userinfobot](https://t.me/userinfobot).
+</Note>
+
+If `allow_from` is empty or omitted, anyone can use the bot.
+
+## Bot Commands
+
+The Telegram bot registers these commands (defined in `channels/telegram.py:65-75`):
+
+### `/start`
+
+Displays a welcome message introducing the bot.
+
+```
+Hey [Name]!
+
+I'm grip — your AI assistant.
+
+Send me any message and I'll do my best to help.
+Type /help to see all available commands.
+```
+
+### `/help`
+
+Lists all available commands with descriptions.
+
+### `/new`
+
+Starts a fresh conversation by clearing the session:
+
+```
+/new
+```
+
+Response: "Session cleared. Starting fresh conversation."
+
+### `/status`
+
+Shows current session information (message count, model, etc.):
+
+```
+/status
+```
+
+### `/model [name]`
+
+Shows the current model or switches to a different one:
+
+```
+/model
+```
+
+Shows current model.
+
+```
+/model gpt-4o
+```
+
+Switches to GPT-4.
+
+### `/trust <path>`
+
+Trusts a directory for file operations:
+
+```
+/trust ~/Downloads
+```
+
+### `/undo`
+
+Removes the last message exchange (user message + agent response):
+
+```
+/undo
+```
+
+### `/clear`
+
+Clears the entire conversation history:
+
+```
+/clear
+```
+
+Response: "Conversation history cleared."
+
+### `/compact`
+
+Summarizes and compresses the session history to reduce token usage:
+
+```
+/compact
+```
+
+Response: "Compacting session history..."
+
+## Message Handling
+
+### Text Messages
+
+All non-command text messages are forwarded to the agent for processing. The bot shows a "typing..." indicator while the agent generates a response.
+
+### Photo Messages
+
+When you send a photo, the bot processes the caption:
+
+- If caption is provided: Caption text is forwarded to the agent
+- If no caption: "[User sent a photo without caption]" is forwarded
+
+Metadata includes `type: "photo"` and `message_id`.
+
+### Document Messages
+
+When you send a document (PDF, ZIP, etc.), the bot processes the caption:
+
+```
+[User sent document: filename.pdf]
+Optional caption text here
+```
+
+Metadata includes `type: "document"`, `file_name`, and `message_id`.
+
+### Voice Messages
+
+<Warning>
+Voice transcription is not yet supported. Voice messages show:
+
+```
+[User sent a voice message (15s). Voice transcription is not yet supported.]
+```
+</Warning>
+
+Metadata includes `type: "voice"` and `duration` in seconds.
+
+## Sending Files from Agent
+
+The agent can send files back to you using the outbound message system. Files are automatically categorized:
+
+**Images** (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`): Sent as photos
+
+**Other files**: Sent as documents
+
+Implementation reference: `channels/telegram.py:454-516`
+
+Example agent response with file:
+
+```python
+OutboundMessage(
+    channel="telegram",
+    chat_id="123456789",
+    text="Here's the chart you requested",
+    file_path="/path/to/chart.png"
+)
+```
+
+The text becomes the photo/document caption (max 1,024 characters).
+
+## Message Formatting
+
+The Telegram channel automatically converts Markdown to Telegram HTML (reference: `channels/telegram.py:83-95`):
+
+| Markdown | Telegram HTML | Result |
+|----------|---------------|--------|
+| `**bold**` or `__bold__` | `<b>bold</b>` | **bold** |
+| `*italic*` or `_italic_` | `<i>italic</i>` | *italic* |
+| `~~strike~~` | `<s>strike</s>` | ~~strike~~ |
+| `` `code` `` | `<code>code</code>` | `code` |
+| ` ```code block``` ` | `<pre><code>code</code></pre>` | Code block |
+| `[text](url)` | `<a href="url">text</a>` | [text](url) |
+
+<Note>
+Only `http://` and `https://` URLs are converted to links. Other schemes (like `javascript:`) are ignored for security.
+</Note>
+
+## Message Length Limits
+
+Telegram enforces a 4,096 character limit per message. Long responses are automatically split on newline boundaries when possible.
+
+Implementation: `channels/base.py:78-101`
+
+**Example**:
+```
+Long message (5000 chars)
+↓
+Chunk 1 (4000 chars)
+Chunk 2 (1000 chars)
+```
+
+Each chunk is sent as a separate message.
+
+## Error Handling
+
+The channel implements graceful error handling:
+
+**HTML parsing errors**: Falls back to plain text if Telegram rejects HTML
+
+**File not found**: Sends error message instead of file
+
+**Caption too long**: Truncates to 1,024 characters (Telegram limit)
+
+**Unknown commands**: Responds with "Unknown command" and suggests `/help`
+
+## Implementation Reference
+
+The Telegram channel is implemented in `channels/telegram.py`:
+
+- **Bot initialization**: `telegram.py:118-142`
+- **Command handlers**: `telegram.py:169-277`
+- **Message handlers**: `telegram.py:279-383`
+- **Send methods**: `telegram.py:427-516`
+- **Markdown conversion**: `telegram.py:83-95`
+
+## Troubleshooting
+
+### Bot doesn't respond
+
+1. Check that the token is correct in your configuration
+2. Verify the bot is enabled: `channels.telegram.enabled: true`
+3. Check logs for connection errors
+4. Ensure you're not blocked by the `allow_from` list
+
+### "python-telegram-bot not found" error
+
+Install the Telegram channel dependencies:
+
+```bash
+uv pip install grip[channels-telegram]
+```
+
+### Bot responds to everyone (security concern)
+
+Add a user allowlist:
+
+```yaml
+channels:
+  telegram:
+    enabled: true
+    token: "${TELEGRAM_BOT_TOKEN}"
+    allow_from:
+      - "YOUR_USER_ID"
+```
+
+### Formatting looks wrong
+
+The bot converts Markdown to Telegram HTML automatically. If you see raw HTML tags, there may be a parsing error. Check logs for details.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Message Bus" icon="diagram-project" href="/channels/overview">
+    Learn how channels integrate with the message bus
+  </Card>
+  <Card title="Discord Setup" icon="discord" href="/channels/discord">
+    Set up a Discord bot for your server
+  </Card>
+</CardGroup>

@@ -1,0 +1,653 @@
+---
+title: "grip workflow"
+description: "Manage and execute multi-agent workflows with list, show, run, create, edit, and delete commands"
+---
+
+## Overview
+
+The `grip workflow` command manages multi-agent workflows - coordinated sequences of agent tasks that can run in parallel or series with dependency management.
+
+## Subcommands
+
+- `grip workflow list` - List all saved workflow definitions
+- `grip workflow show` - Show workflow steps and dependencies
+- `grip workflow run` - Execute a workflow
+- `grip workflow create` - Create a workflow from JSON file
+- `grip workflow edit` - Update an existing workflow
+- `grip workflow delete` - Delete a saved workflow
+
+## grip workflow list
+
+Display all saved workflows:
+
+```bash
+grip workflow list
+```
+
+**Example output:**
+
+```
+╭─ Workflows ───────────────────────────────────────────────────────────╮
+│ ┌────────────────┬───────┬──────────────────────────────────────────┐ │
+│ │ Name           │ Steps │ Description                              │ │
+│ ├────────────────┼───────┼──────────────────────────────────────────┤ │
+│ │ code-review    │ 4     │ Multi-stage code review with tests       │ │
+│ │ deploy-prod    │ 6     │ Production deployment with rollback      │ │
+│ │ data-pipeline  │ 3     │ ETL workflow with validation             │ │
+│ └────────────────┴───────┴──────────────────────────────────────────┘ │
+╰───────────────────────────────────────────────────────────────────────╯
+```
+
+**If no workflows exist:**
+
+```
+No workflows saved. Create one with: grip workflow create <file>
+```
+
+## grip workflow show
+
+Display workflow details, steps, and execution order:
+
+```bash
+grip workflow show <name>
+```
+
+### Example
+
+```bash
+grip workflow show code-review
+```
+
+**Output:**
+
+```
+code-review
+Multi-stage code review with tests and security analysis
+
+  Layer 1 (parallel):
+    [analyst] code-analysis
+      Analyze code quality and suggest improvements
+      
+    [tester] run-tests
+      Execute test suite and report results
+
+  Layer 2 (parallel):
+    [security] security-scan ← [code-analysis]
+      Scan for security vulnerabilities
+
+  Layer 3 (parallel):
+    [reviewer] final-review ← [run-tests, security-scan]
+      Compile results and provide final recommendation
+```
+
+### Output Details
+
+- **Workflow name** - Identifier
+- **Description** - Purpose of the workflow
+- **Layers** - Execution stages (parallel within layer, sequential across layers)
+- **Step format** - `[profile] step-name ← [dependencies]`
+- **Profile** - Agent configuration profile to use
+- **Dependencies** - Steps that must complete first
+
+## grip workflow run
+
+Execute a workflow:
+
+```bash
+grip workflow run <name>
+```
+
+### Example
+
+```bash
+grip workflow run code-review
+```
+
+**Output:**
+
+```
+Running workflow: code-review (4 steps)
+
+Result: completed (127.3s)
+  ✓ code-analysis: completed (34.2s)
+  ✓ run-tests: completed (45.8s)
+  ✓ security-scan: completed (23.1s)
+  ✓ final-review: completed (24.2s)
+```
+
+### Status Indicators
+
+- **✓** - Step completed successfully
+- **✗** - Step failed
+
+### Workflow Status
+
+- **completed** - All steps succeeded
+- **failed** - One or more steps failed
+- **partial** - Some steps succeeded, others failed
+
+### Error Output
+
+```bash
+$ grip workflow run deploy-prod
+
+Running workflow: deploy-prod (6 steps)
+
+Result: failed (89.5s)
+  ✓ pre-checks: completed (12.3s)
+  ✓ build: completed (45.2s)
+  ✗ deploy: failed (15.7s)
+    Error: Deployment failed: connection timeout
+  ✗ verify: skipped (0.0s)
+  ✗ notify: skipped (0.0s)
+  ✗ cleanup: skipped (0.0s)
+```
+
+<Note>
+  When a step fails, dependent steps are skipped. Use the error message to debug issues.
+</Note>
+
+## grip workflow create
+
+Create a workflow from a JSON definition:
+
+```bash
+grip workflow create <file>
+```
+
+### Example
+
+```bash
+grip workflow create ~/workflows/code-review.json
+```
+
+**Output:**
+
+```
+Workflow 'code-review' saved (4 steps) → ~/grip/workspace/workflows/code-review.json
+```
+
+### Workflow JSON Format
+
+```json
+{
+  "name": "code-review",
+  "description": "Multi-stage code review with tests and security analysis",
+  "steps": [
+    {
+      "name": "code-analysis",
+      "profile": "analyst",
+      "prompt": "Analyze the code in the repository for quality and improvements",
+      "depends_on": []
+    },
+    {
+      "name": "run-tests",
+      "profile": "tester",
+      "prompt": "Run the test suite and report results",
+      "depends_on": []
+    },
+    {
+      "name": "security-scan",
+      "profile": "security",
+      "prompt": "Scan for security vulnerabilities and compliance issues",
+      "depends_on": ["code-analysis"]
+    },
+    {
+      "name": "final-review",
+      "profile": "reviewer",
+      "prompt": "Compile all results and provide final recommendation",
+      "depends_on": ["run-tests", "security-scan"]
+    }
+  ]
+}
+```
+
+### Field Descriptions
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Unique workflow identifier |
+| `description` | No | Human-readable description |
+| `steps` | Yes | Array of workflow steps |
+| `steps[].name` | Yes | Unique step identifier |
+| `steps[].profile` | Yes | Agent profile (analyst, tester, etc.) |
+| `steps[].prompt` | Yes | Task instruction for the agent |
+| `steps[].depends_on` | No | List of step names that must complete first |
+
+### Validation
+
+Workflows are validated on creation:
+
+```bash
+$ grip workflow create bad-workflow.json
+
+Validation errors: Circular dependency detected: step-a → step-b → step-a
+```
+
+**Common errors:**
+- Circular dependencies
+- Missing required fields
+- Invalid step references in `depends_on`
+- Duplicate step names
+
+## grip workflow edit
+
+Update an existing workflow:
+
+```bash
+grip workflow edit <file>
+```
+
+### Example
+
+```bash
+# Edit the JSON file
+vim ~/workflows/code-review.json
+
+# Update the workflow
+grip workflow edit ~/workflows/code-review.json
+```
+
+**Output:**
+
+```
+Workflow 'code-review' updated (5 steps) -> ~/grip/workspace/workflows/code-review.json
+```
+
+**If workflow doesn't exist:**
+
+```
+Workflow 'new-workflow' not found. Use 'grip workflow create' for new workflows.
+```
+
+<Note>
+  The workflow name in the JSON file must match an existing workflow. Use `grip workflow create` for new workflows.
+</Note>
+
+## grip workflow delete
+
+Delete a saved workflow:
+
+```bash
+grip workflow delete <name>
+```
+
+### Example
+
+```bash
+grip workflow delete code-review
+```
+
+**Output:**
+
+```
+Deleted workflow: code-review
+```
+
+**If workflow not found:**
+
+```
+Workflow 'code-review' not found.
+```
+
+## Workflow Patterns
+
+### Sequential Execution
+
+Each step depends on the previous:
+
+```json
+{
+  "name": "sequential-pipeline",
+  "steps": [
+    {
+      "name": "step1",
+      "depends_on": []
+    },
+    {
+      "name": "step2",
+      "depends_on": ["step1"]
+    },
+    {
+      "name": "step3",
+      "depends_on": ["step2"]
+    }
+  ]
+}
+```
+
+**Execution:**
+```
+step1 → step2 → step3
+```
+
+### Parallel Execution
+
+Steps run simultaneously:
+
+```json
+{
+  "name": "parallel-tasks",
+  "steps": [
+    {
+      "name": "task1",
+      "depends_on": []
+    },
+    {
+      "name": "task2",
+      "depends_on": []
+    },
+    {
+      "name": "task3",
+      "depends_on": []
+    }
+  ]
+}
+```
+
+**Execution:**
+```
+task1 ─┐
+task2 ─┤ (parallel)
+task3 ─┘
+```
+
+### Fan-Out/Fan-In
+
+Parallel tasks that converge:
+
+```json
+{
+  "name": "fan-out-in",
+  "steps": [
+    {
+      "name": "split",
+      "depends_on": []
+    },
+    {
+      "name": "process-a",
+      "depends_on": ["split"]
+    },
+    {
+      "name": "process-b",
+      "depends_on": ["split"]
+    },
+    {
+      "name": "process-c",
+      "depends_on": ["split"]
+    },
+    {
+      "name": "merge",
+      "depends_on": ["process-a", "process-b", "process-c"]
+    }
+  ]
+}
+```
+
+**Execution:**
+```
+         ┌→ process-a ─┐
+split ───┼→ process-b ─┼→ merge
+         └→ process-c ─┘
+```
+
+### Diamond Pattern
+
+Multiple paths that rejoin:
+
+```json
+{
+  "name": "diamond",
+  "steps": [
+    {"name": "start", "depends_on": []},
+    {"name": "left", "depends_on": ["start"]},
+    {"name": "right", "depends_on": ["start"]},
+    {"name": "end", "depends_on": ["left", "right"]}
+  ]
+}
+```
+
+**Execution:**
+```
+       ┌→ left ─┐
+start ─┤        ├→ end
+       └→ right ┘
+```
+
+## Agent Profiles
+
+Profiles configure agent behavior for each step:
+
+### Common Profiles
+
+- **analyst** - Code analysis and architecture review
+- **tester** - Test execution and quality assurance
+- **security** - Security scanning and compliance
+- **reviewer** - Final review and decision making
+- **builder** - Build and compilation tasks
+- **deployer** - Deployment and infrastructure
+
+### Profile Configuration
+
+Profiles are defined in your config:
+
+```json
+{
+  "agents": {
+    "profiles": {
+      "analyst": {
+        "model": "gpt-4o",
+        "temperature": 0.3,
+        "max_iterations": 5
+      },
+      "tester": {
+        "model": "claude-sonnet-4",
+        "temperature": 0.1,
+        "max_iterations": 10
+      }
+    }
+  }
+}
+```
+
+## Workflow Storage
+
+Workflows are stored in:
+
+```
+~/grip/workspace/workflows/
+├── code-review.json
+├── deploy-prod.json
+└── data-pipeline.json
+```
+
+## Complete Examples
+
+### Code Review Workflow
+
+```json
+{
+  "name": "code-review",
+  "description": "Comprehensive code review with quality, security, and testing",
+  "steps": [
+    {
+      "name": "lint-check",
+      "profile": "analyst",
+      "prompt": "Run linting and check code style compliance",
+      "depends_on": []
+    },
+    {
+      "name": "type-check",
+      "profile": "analyst",
+      "prompt": "Run type checker and report any type errors",
+      "depends_on": []
+    },
+    {
+      "name": "unit-tests",
+      "profile": "tester",
+      "prompt": "Run unit test suite and report coverage",
+      "depends_on": ["lint-check", "type-check"]
+    },
+    {
+      "name": "security-audit",
+      "profile": "security",
+      "prompt": "Scan for vulnerabilities and security issues",
+      "depends_on": ["lint-check"]
+    },
+    {
+      "name": "integration-tests",
+      "profile": "tester",
+      "prompt": "Run integration test suite",
+      "depends_on": ["unit-tests"]
+    },
+    {
+      "name": "final-report",
+      "profile": "reviewer",
+      "prompt": "Compile all results and provide approval recommendation",
+      "depends_on": ["integration-tests", "security-audit"]
+    }
+  ]
+}
+```
+
+### Deployment Workflow
+
+```json
+{
+  "name": "deploy-prod",
+  "description": "Safe production deployment with verification and rollback",
+  "steps": [
+    {
+      "name": "pre-checks",
+      "profile": "analyst",
+      "prompt": "Verify all pre-deployment requirements are met",
+      "depends_on": []
+    },
+    {
+      "name": "build",
+      "profile": "builder",
+      "prompt": "Build production artifacts and verify integrity",
+      "depends_on": ["pre-checks"]
+    },
+    {
+      "name": "deploy-staging",
+      "profile": "deployer",
+      "prompt": "Deploy to staging environment",
+      "depends_on": ["build"]
+    },
+    {
+      "name": "verify-staging",
+      "profile": "tester",
+      "prompt": "Run smoke tests on staging",
+      "depends_on": ["deploy-staging"]
+    },
+    {
+      "name": "deploy-prod",
+      "profile": "deployer",
+      "prompt": "Deploy to production with blue-green strategy",
+      "depends_on": ["verify-staging"]
+    },
+    {
+      "name": "verify-prod",
+      "profile": "tester",
+      "prompt": "Verify production deployment health",
+      "depends_on": ["deploy-prod"]
+    },
+    {
+      "name": "notify",
+      "profile": "reviewer",
+      "prompt": "Send deployment notification to team",
+      "depends_on": ["verify-prod"]
+    }
+  ]
+}
+```
+
+### Data Pipeline
+
+```json
+{
+  "name": "data-pipeline",
+  "description": "ETL workflow with validation and reporting",
+  "steps": [
+    {
+      "name": "extract",
+      "profile": "analyst",
+      "prompt": "Extract data from source databases",
+      "depends_on": []
+    },
+    {
+      "name": "transform",
+      "profile": "analyst",
+      "prompt": "Transform and clean the extracted data",
+      "depends_on": ["extract"]
+    },
+    {
+      "name": "validate",
+      "profile": "tester",
+      "prompt": "Validate data quality and integrity",
+      "depends_on": ["transform"]
+    },
+    {
+      "name": "load",
+      "profile": "builder",
+      "prompt": "Load validated data into warehouse",
+      "depends_on": ["validate"]
+    },
+    {
+      "name": "report",
+      "profile": "reviewer",
+      "prompt": "Generate pipeline execution report",
+      "depends_on": ["load"]
+    }
+  ]
+}
+```
+
+## Troubleshooting
+
+### Workflow fails immediately
+
+```bash
+# Check validation
+grip workflow show workflow-name
+
+# Verify JSON syntax
+cat ~/grip/workspace/workflows/workflow-name.json | jq .
+
+# Re-create with fixed JSON
+grip workflow delete workflow-name
+grip workflow create fixed-workflow.json
+```
+
+### Step stuck or hangs
+
+```bash
+# Monitor with verbose logging
+grip workflow run workflow-name --verbose
+
+# Check agent logs
+tail -f ~/grip/workspace/logs/agent.log
+
+# Reduce max_iterations in profile
+grip config set agents.profiles.analyst.max_iterations 5
+```
+
+### Dependencies not respected
+
+```bash
+# Verify execution order
+grip workflow show workflow-name
+
+# Check for circular dependencies
+grip workflow create workflow.json
+# Error: Circular dependency detected
+
+# Fix depends_on in JSON and re-create
+```
+
+## Related Commands
+
+- **[grip agent](/cli/agent)** - Single-agent execution
+- **[grip config](/cli/config)** - Configure agent profiles
+- **[grip gateway](/cli/gateway)** - Run workflows via API

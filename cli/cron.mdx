@@ -1,0 +1,465 @@
+---
+title: "grip cron"
+description: "Manage scheduled tasks with list, add, remove, enable, and disable commands"
+---
+
+## Overview
+
+The `grip cron` command manages scheduled tasks that run automatically on a cron schedule. Each job sends a prompt to the AI agent at specified intervals.
+
+## Subcommands
+
+- `grip cron list` - Show all scheduled cron jobs
+- `grip cron add` - Add a new cron job
+- `grip cron remove` - Remove a cron job by ID
+- `grip cron enable` - Enable a disabled job
+- `grip cron disable` - Disable a job without removing it
+
+## grip cron list
+
+Display all configured cron jobs:
+
+```bash
+grip cron list
+```
+
+**Example output:**
+
+```
+╭─ Cron Jobs ──────────────────────────────────────────────────────────────╮
+│ ┌────────────┬──────────────┬───────────┬─────────┬───────────────────┐ │
+│ │ ID         │ Name         │ Schedule  │ Enabled │ Last Run          │ │
+│ ├────────────┼──────────────┼───────────┼─────────┼───────────────────┤ │
+│ │ task_a1b2  │ Daily Report │ 0 9 * * * │ Yes     │ 2026-02-28 09:00  │ │
+│ │ task_c3d4  │ DB Backup    │ 0 2 * * * │ Yes     │ 2026-02-28 02:00  │ │
+│ │ task_e5f6  │ Check Alerts │ */15 * *  │ No      │ Never             │ │
+│ └────────────┴──────────────┴───────────┴─────────┴───────────────────┘ │
+╰──────────────────────────────────────────────────────────────────────────╯
+```
+
+### Columns
+
+- **ID** - Unique job identifier
+- **Name** - Human-readable job name
+- **Schedule** - Cron expression
+- **Enabled** - Whether the job runs
+- **Last Run** - Timestamp of last execution
+- **Prompt** - First 40 characters of the prompt
+
+## grip cron add
+
+Create a new scheduled job:
+
+```bash
+grip cron add <name> <schedule> <prompt> [--reply-to SESSION_KEY]
+```
+
+### Arguments
+
+- **name** - Descriptive name for the job
+- **schedule** - Cron expression (see [Cron Syntax](#cron-syntax))
+- **prompt** - Message to send to the agent
+
+### Options
+
+- **--reply-to** / **-r** - Session key to route results (e.g., `telegram:123456`)
+
+### Examples
+
+#### Daily Report at 9 AM
+
+```bash
+grip cron add "Daily Report" "0 9 * * *" "Generate daily metrics report"
+```
+
+**Output:**
+```
+Job added: task_a1b2 (Daily Report)
+  Schedule: 0 9 * * *
+  Prompt: Generate daily metrics report
+```
+
+#### Hourly Health Check
+
+```bash
+grip cron add "Health Check" "0 * * * *" "Check system health and alert if issues found"
+```
+
+#### Every 15 Minutes
+
+```bash
+grip cron add "Monitor Queue" "*/15 * * * *" "Check task queue length"
+```
+
+#### With Reply Destination
+
+```bash
+grip cron add "Server Status" "0 */6 * * *" \
+  "Check server load and disk usage" \
+  --reply-to telegram:123456
+```
+
+**Output:**
+```
+Job added: task_c3d4 (Server Status)
+  Schedule: 0 */6 * * *
+  Reply to: telegram:123456
+  Prompt: Check server load and disk usage
+```
+
+#### Weekly Summary
+
+```bash
+grip cron add "Weekly Summary" "0 17 * * 5" \
+  "Summarize this week's activity and send to the team"
+```
+
+### Multi-line Prompts
+
+```bash
+grip cron add "Comprehensive Report" "0 8 * * 1" \
+  "Generate a comprehensive weekly report including:
+  - Active user count
+  - Revenue metrics
+  - System uptime
+  - Open tickets"
+```
+
+## grip cron remove
+
+Delete a cron job permanently:
+
+```bash
+grip cron remove <job_id>
+```
+
+### Example
+
+```bash
+grip cron remove task_a1b2
+```
+
+**Output:**
+```
+Removed: task_a1b2
+```
+
+**If job not found:**
+```
+Job not found: task_xyz
+```
+
+<Note>
+  Removing a job is permanent. Use `grip cron disable` if you want to temporarily stop a job.
+</Note>
+
+## grip cron enable
+
+Enable a disabled job:
+
+```bash
+grip cron enable <job_id>
+```
+
+### Example
+
+```bash
+grip cron enable task_e5f6
+```
+
+**Output:**
+```
+Enabled: task_e5f6
+```
+
+## grip cron disable
+
+Disable a job without removing it:
+
+```bash
+grip cron disable <job_id>
+```
+
+### Example
+
+```bash
+grip cron disable task_c3d4
+```
+
+**Output:**
+```
+Disabled: task_c3d4
+```
+
+### Use Cases
+
+- Temporarily stop a job during maintenance
+- Pause jobs that are failing
+- Disable jobs during off-hours
+- Test configuration changes
+
+## Cron Syntax
+
+Cron expressions use 5 fields:
+
+```
+* * * * *
+│ │ │ │ └─ Day of week (0-7, Sunday=0 or 7)
+│ │ │ └─── Month (1-12)
+│ │ └───── Day of month (1-31)
+│ └─────── Hour (0-23)
+└───────── Minute (0-59)
+```
+
+### Special Characters
+
+- **`*`** - Any value
+- **`*/n`** - Every n units (e.g., `*/15` = every 15 minutes)
+- **`n-m`** - Range (e.g., `9-17` = 9 AM to 5 PM)
+- **`n,m`** - List (e.g., `1,15` = 1st and 15th)
+- **`n/step`** - Starting at n, every step (e.g., `5/10` = 5, 15, 25, ...)
+
+### Common Patterns
+
+| Schedule | Description | Example |
+|----------|-------------|----------|
+| `* * * * *` | Every minute | System monitoring |
+| `*/5 * * * *` | Every 5 minutes | Quick checks |
+| `0 * * * *` | Every hour | Hourly reports |
+| `0 0 * * *` | Daily at midnight | Nightly jobs |
+| `0 9 * * *` | Daily at 9 AM | Morning reports |
+| `0 9 * * 1-5` | Weekdays at 9 AM | Business day tasks |
+| `0 0 * * 0` | Weekly on Sunday | Weekly summaries |
+| `0 0 1 * *` | Monthly on 1st | Monthly reports |
+| `0 0 1 1 *` | Yearly on Jan 1st | Annual tasks |
+| `0 9,17 * * *` | 9 AM and 5 PM | Twice daily |
+| `*/15 9-17 * * *` | Every 15 min, 9-5 | Business hours |
+
+### Examples
+
+```bash
+# Every 30 minutes
+grip cron add "Half Hour Check" "*/30 * * * *" "Check status"
+
+# Every day at 6 AM and 6 PM
+grip cron add "Twice Daily" "0 6,18 * * *" "Generate report"
+
+# Every weekday at 9 AM
+grip cron add "Weekday Morning" "0 9 * * 1-5" "Morning briefing"
+
+# Every Monday at 9 AM
+grip cron add "Weekly Meeting" "0 9 * * 1" "Prepare weekly agenda"
+
+# First day of every month at midnight
+grip cron add "Monthly Report" "0 0 1 * *" "Generate monthly metrics"
+
+# Every 15 minutes during business hours (9 AM - 5 PM)
+grip cron add "Business Hours" "*/15 9-17 * * *" "Monitor queue"
+```
+
+## Job Storage
+
+Cron jobs are stored in:
+
+```
+~/grip/workspace/cron/jobs.json
+```
+
+### Format
+
+```json
+[
+  {
+    "id": "task_a1b2",
+    "name": "Daily Report",
+    "schedule": "0 9 * * *",
+    "prompt": "Generate daily metrics report",
+    "enabled": true,
+    "reply_to": "telegram:123456",
+    "last_run": "2026-02-28T09:00:00",
+    "created_at": "2026-02-01T10:30:00"
+  }
+]
+```
+
+## Execution
+
+Cron jobs execute when:
+
+1. The gateway is running (`grip gateway`)
+2. The job is enabled
+3. The schedule matches the current time
+
+### Process
+
+1. Cron service checks schedules every minute
+2. Matching jobs trigger agent runs
+3. Agent processes the prompt
+4. Result is sent to `reply_to` session (if specified)
+5. `last_run` timestamp is updated
+
+### Example Flow
+
+```
+09:00:00 → Cron service checks schedules
+         → Finds "Daily Report" (0 9 * * *)
+         → Triggers agent run with prompt
+         → Agent executes: "Generate daily metrics report"
+         → Result sent to telegram:123456
+         → Updates last_run to 2026-02-28T09:00:00
+```
+
+## Reply Destinations
+
+The `--reply-to` option routes results to a specific session:
+
+### Format
+
+```
+{channel}:{chat_id}
+```
+
+### Examples
+
+```bash
+# Send to Telegram chat
+grip cron add "Alert" "*/5 * * * *" "Check alerts" \
+  --reply-to telegram:123456789
+
+# Send to Discord channel
+grip cron add "Status" "0 * * * *" "System status" \
+  --reply-to discord:987654321
+
+# Send to Slack channel
+grip cron add "Report" "0 9 * * *" "Daily report" \
+  --reply-to slack:C01ABC123
+```
+
+### Without --reply-to
+
+If `--reply-to` is not specified, the result is logged but not sent to any channel.
+
+## Monitoring
+
+### Check Last Run Times
+
+```bash
+grip cron list | grep "Last Run"
+```
+
+### View Gateway Logs
+
+```bash
+grip gateway --verbose 2>&1 | grep -i cron
+```
+
+### Check Job File
+
+```bash
+cat ~/grip/workspace/cron/jobs.json | jq '.'
+```
+
+## Timezone Configuration
+
+Cron schedules use the timezone from config:
+
+```bash
+grip config show | grep timezone
+```
+
+**Set timezone:**
+
+```bash
+grip config set cron.timezone "America/New_York"
+grip config set cron.timezone "Europe/London"
+grip config set cron.timezone "UTC"
+```
+
+<Note>
+  Restart the gateway after changing timezone: `grip gateway`
+</Note>
+
+## Use Cases
+
+### Daily Reports
+
+```bash
+grip cron add "Sales Report" "0 8 * * *" \
+  "Generate yesterday's sales report with revenue breakdown"
+```
+
+### System Monitoring
+
+```bash
+grip cron add "Disk Space" "0 */6 * * *" \
+  "Check disk space on all servers and alert if usage > 80%" \
+  --reply-to telegram:123456
+```
+
+### Automated Backups
+
+```bash
+grip cron add "DB Backup" "0 2 * * *" \
+  "Run database backup and verify completion"
+```
+
+### Periodic Summaries
+
+```bash
+grip cron add "Weekly Summary" "0 17 * * 5" \
+  "Summarize this week's GitHub activity and PR reviews" \
+  --reply-to discord:987654321
+```
+
+### Health Checks
+
+```bash
+grip cron add "API Health" "*/5 * * * *" \
+  "Check API endpoint health and response times"
+```
+
+## Troubleshooting
+
+### Job not running
+
+```bash
+# Check if enabled
+grip cron list | grep task_id
+
+# Enable if disabled
+grip cron enable task_id
+
+# Verify gateway is running
+ps aux | grep "grip gateway"
+
+# Check gateway logs
+grip gateway --verbose 2>&1 | grep cron
+```
+
+### Invalid schedule
+
+```bash
+# Test cron expression online: https://crontab.guru/
+
+# Common mistakes:
+grip cron add "Bad" "0 25 * * *" "..."  # Hour must be 0-23
+grip cron add "Bad" "60 * * * *" "..."  # Minute must be 0-59
+```
+
+### Job runs but no output
+
+```bash
+# Add --reply-to destination
+grip cron remove task_id
+grip cron add "Name" "schedule" "prompt" --reply-to telegram:123456
+
+# Check gateway logs for errors
+grip gateway --verbose 2>&1 | grep task_id
+```
+
+## Related Commands
+
+- **[grip gateway](/cli/gateway)** - Required for cron execution
+- **[grip agent](/cli/agent)** - Test prompts before scheduling
+- **[grip config](/cli/config)** - Configure cron timezone
+- **Interactive /tasks** - View tasks from agent interactive mode

@@ -1,0 +1,235 @@
+---
+title: "Filesystem Tools"
+description: "Read, write, edit, and manage files with workspace sandboxing and trash recovery"
+---
+
+## Overview
+
+Filesystem tools provide safe file operations with built-in workspace sandboxing, trust management, and recoverable deletion. All paths are resolved relative to the workspace, and operations outside the workspace require explicit user trust.
+
+## Tools
+
+### read_file
+
+Read the contents of a file with optional pagination for large files.
+
+<ParamField path="path" type="string" required>
+  File path to read (relative to workspace or absolute)
+</ParamField>
+
+<ParamField path="offset" type="integer">
+  Starting line number (1-based). Omit to read from the beginning.
+</ParamField>
+
+<ParamField path="limit" type="integer">
+  Maximum number of lines to read. Omit to read the entire file.
+</ParamField>
+
+**Example:**
+```python
+result = await read_file(
+    path="src/main.py",
+    offset=10,
+    limit=50
+)
+```
+
+**Returns:** File contents as text, truncated at 100,000 characters if needed.
+
+---
+
+### write_file
+
+Create or overwrite a file with the given content. Uses atomic writes with a temporary file to prevent corruption.
+
+<ParamField path="path" type="string" required>
+  File path to write (relative to workspace or absolute)
+</ParamField>
+
+<ParamField path="content" type="string" required>
+  Content to write to the file
+</ParamField>
+
+**Example:**
+```python
+result = await write_file(
+    path="output/report.txt",
+    content="Analysis results:\n..."
+)
+```
+
+**Returns:** Confirmation message with character count.
+
+---
+
+### edit_file
+
+Find and replace a specific text string within a file. The old_text must appear exactly once to ensure precision.
+
+<ParamField path="path" type="string" required>
+  File path to edit
+</ParamField>
+
+<ParamField path="old_text" type="string" required>
+  Exact text to find (must occur exactly once in the file)
+</ParamField>
+
+<ParamField path="new_text" type="string" required>
+  Replacement text
+</ParamField>
+
+**Example:**
+```python
+result = await edit_file(
+    path="config.yaml",
+    old_text="debug: false",
+    new_text="debug: true"
+)
+```
+
+**Returns:** Success message or error if old_text appears 0 or multiple times.
+
+---
+
+### append_file
+
+Append content to the end of a file. Creates the file if it does not exist.
+
+<ParamField path="path" type="string" required>
+  File path to append to
+</ParamField>
+
+<ParamField path="content" type="string" required>
+  Content to append
+</ParamField>
+
+**Example:**
+```python
+result = await append_file(
+    path="logs/events.log",
+    content="[2026-02-28] New event logged\n"
+)
+```
+
+---
+
+### list_dir
+
+List the contents of a directory with file sizes and types.
+
+<ParamField path="path" type="string" required>
+  Directory path to list (relative to workspace or absolute)
+</ParamField>
+
+**Example:**
+```python
+result = await list_dir(path="src")
+```
+
+**Returns:** Formatted listing with file sizes in human-readable format (B, KB, MB, GB).
+
+---
+
+### delete_file
+
+Safely delete a file or directory by moving it to a date-stamped trash folder. This is NOT a permanent delete.
+
+<ParamField path="path" type="string" required>
+  File or directory path to delete (moved to trash)
+</ParamField>
+
+**Example:**
+```python
+result = await delete_file(path="temp/old_data.csv")
+```
+
+**Returns:** Confirmation with trash location (workspace/.trash/YYYY-MM-DD/).
+
+**Protected directories:** `memory`, `sessions`, `skills`, `cron`, `state`, `logs`, `.trash` cannot be deleted.
+
+---
+
+### trash_list
+
+List files in the trash folder, grouped by deletion date.
+
+**Example:**
+```python
+result = await trash_list()
+```
+
+**Returns:** List of trashed files organized by date, or "Trash is empty".
+
+---
+
+### trash_restore
+
+Restore a file from trash back to a target path in the workspace.
+
+<ParamField path="filename" type="string" required>
+  Name of the file in trash to restore
+</ParamField>
+
+<ParamField path="date" type="string">
+  Trash date folder (YYYY-MM-DD). Defaults to most recent.
+</ParamField>
+
+<ParamField path="restore_to" type="string" required>
+  Target path to restore to (relative to workspace or absolute)
+</ParamField>
+
+**Example:**
+```python
+result = await trash_restore(
+    filename="important.txt",
+    restore_to="docs/important.txt"
+)
+```
+
+---
+
+### save_file
+
+Save content to the structured Downloads directory (Downloads/YYYY-MM-DD/filename). Use for generated outputs, reports, and exports.
+
+<ParamField path="filename" type="string" required>
+  Name of the file to save (e.g. 'report.csv', 'output.json')
+</ParamField>
+
+<ParamField path="content" type="string" required>
+  Content to write to the file
+</ParamField>
+
+**Example:**
+```python
+result = await save_file(
+    filename="analysis.csv",
+    content="col1,col2\nvalue1,value2\n"
+)
+```
+
+**Returns:** Full path where the file was saved. Auto-increments filename if it already exists.
+
+---
+
+## Security Features
+
+### Workspace Sandboxing
+
+When `restrict_to_workspace` is enabled, all file operations are confined to the workspace directory. Attempts to access files outside the workspace are blocked with a clear error message.
+
+### Trust System
+
+For paths outside the workspace (when sandboxing is disabled), the TrustManager prompts the user interactively before granting access. Use `/trust [directory]` to pre-authorize directories.
+
+### Safe Deletion
+
+Deleted files are moved to `.trash/YYYY-MM-DD/` instead of being permanently removed. This allows recovery via `trash_restore` if a deletion was accidental.
+
+## Implementation
+
+All tools are defined in `grip/tools/filesystem.py` and use:
+- Path resolution with `_resolve_path()` for workspace enforcement
+- Atomic writes with `.tmp` files to prevent corruption
+- Human-readable file sizes for directory listings
+- Date-stamped trash organization for easy recovery

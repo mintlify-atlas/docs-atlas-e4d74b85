@@ -1,0 +1,285 @@
+---
+title: "Task Tracking"
+description: "Manage agent task lists with persistent todos for multi-step workflows"
+---
+
+## Overview
+
+Todo tools enable agents to plan and track multi-step work with persistent task lists. Designed to mirror the Claude Agent SDK TodoWrite/TodoRead API, todos are saved to `workspace/tasks.json` and survive across tool iterations.
+
+## Tools
+
+### todo_write
+
+Create or update the task list. Replaces ALL existing todos with the provided list.
+
+<ParamField path="todos" type="array" required>
+  Complete replacement list of all todos. Each todo must have:
+  - `id` (string): Short unique identifier (e.g. "1", "task-2")
+  - `content` (string): Description of what needs to be done
+  - `status` (string): Current status (pending, in_progress, completed, cancelled)
+  - `priority` (string, optional): Priority level (low, medium, high)
+</ParamField>
+
+**Example:**
+```python
+result = await todo_write(
+    todos=[
+        {
+            "id": "1",
+            "content": "Read configuration file",
+            "status": "completed",
+            "priority": "high"
+        },
+        {
+            "id": "2",
+            "content": "Parse and validate settings",
+            "status": "in_progress",
+            "priority": "high"
+        },
+        {
+            "id": "3",
+            "content": "Apply changes to system",
+            "status": "pending",
+            "priority": "medium"
+        }
+    ]
+)
+```
+
+**Returns:**
+```
+Task list updated: 3 total (1 pending, 1 in_progress, 1 completed).
+```
+
+**Important:** Always include the full list on every call. The tool replaces the entire task list, not just updates.
+
+---
+
+### todo_read
+
+Read the current task list. Returns all todos with their statuses and priorities.
+
+**Example:**
+```python
+result = await todo_read()
+```
+
+**Returns:**
+```
+Task list (3 total):
+
+  ● [1] [high] Read configuration file — completed
+  ◑ [2] [high] Parse and validate settings — in_progress
+  ○ [3] [medium] Apply changes to system — pending
+
+Summary: 1 pending, 1 in_progress, 1 completed.
+```
+
+**Status icons:**
+- `○` — pending
+- `◑` — in_progress
+- `●` — completed
+- `✗` — cancelled
+
+---
+
+## Workflow Patterns
+
+### Initial Planning
+
+```python
+# Agent receives a complex task
+user_request = "Migrate database schema and update application config"
+
+# Create task list
+await todo_write(
+    todos=[
+        {"id": "1", "content": "Backup current database", "status": "pending", "priority": "high"},
+        {"id": "2", "content": "Create migration script", "status": "pending", "priority": "high"},
+        {"id": "3", "content": "Test migration on staging", "status": "pending", "priority": "high"},
+        {"id": "4", "content": "Update application config", "status": "pending", "priority": "medium"},
+        {"id": "5", "content": "Deploy to production", "status": "pending", "priority": "high"},
+    ]
+)
+```
+
+### Progress Tracking
+
+```python
+# Before starting a task, mark it in_progress
+current_todos = await todo_read()
+
+# Update task 1 status
+await todo_write(
+    todos=[
+        {"id": "1", "content": "Backup current database", "status": "in_progress", "priority": "high"},
+        {"id": "2", "content": "Create migration script", "status": "pending", "priority": "high"},
+        {"id": "3", "content": "Test migration on staging", "status": "pending", "priority": "high"},
+        {"id": "4", "content": "Update application config", "status": "pending", "priority": "medium"},
+        {"id": "5", "content": "Deploy to production", "status": "pending", "priority": "high"},
+    ]
+)
+
+# Perform backup
+# ...
+
+# Mark completed and move to next task
+await todo_write(
+    todos=[
+        {"id": "1", "content": "Backup current database", "status": "completed", "priority": "high"},
+        {"id": "2", "content": "Create migration script", "status": "in_progress", "priority": "high"},
+        {"id": "3", "content": "Test migration on staging", "status": "pending", "priority": "high"},
+        {"id": "4", "content": "Update application config", "status": "pending", "priority": "medium"},
+        {"id": "5", "content": "Deploy to production", "status": "pending", "priority": "high"},
+    ]
+)
+```
+
+### Task Cancellation
+
+```python
+# User requests to skip a step
+await todo_write(
+    todos=[
+        {"id": "1", "content": "Backup current database", "status": "completed", "priority": "high"},
+        {"id": "2", "content": "Create migration script", "status": "completed", "priority": "high"},
+        {"id": "3", "content": "Test migration on staging", "status": "cancelled", "priority": "high"},
+        {"id": "4", "content": "Update application config", "status": "in_progress", "priority": "medium"},
+        {"id": "5", "content": "Deploy to production", "status": "pending", "priority": "high"},
+    ]
+)
+```
+
+---
+
+## Validation
+
+### Valid Statuses
+
+Only these values are accepted:
+- `pending` — Task not yet started
+- `in_progress` — Task currently being worked on
+- `completed` — Task finished successfully
+- `cancelled` — Task skipped or abandoned
+
+**Invalid status error:**
+```python
+await todo_write(
+    todos=[{"id": "1", "content": "Test", "status": "done"}]
+)
+# Returns: "Error: Invalid status 'done' for todo '1'. Must be one of: cancelled, completed, in_progress, pending."
+```
+
+### Valid Priorities
+
+Only these values are accepted (optional field):
+- `low`
+- `medium`
+- `high`
+
+**Invalid priority error:**
+```python
+await todo_write(
+    todos=[{"id": "1", "content": "Test", "status": "pending", "priority": "urgent"}]
+)
+# Returns: "Error: Invalid priority 'urgent' for todo '1'. Must be one of: high, low, medium."
+```
+
+---
+
+## Persistence
+
+Todos are saved to `workspace/tasks.json` as a JSON array:
+
+```json
+[
+  {
+    "id": "1",
+    "content": "Read configuration file",
+    "status": "completed",
+    "priority": "high"
+  },
+  {
+    "id": "2",
+    "content": "Parse and validate settings",
+    "status": "in_progress",
+    "priority": "high"
+  }
+]
+```
+
+This file persists across agent restarts and tool iterations.
+
+---
+
+## Best Practices
+
+1. **Use for tasks with 3 or more steps** — simpler tasks don't need tracking
+2. **Set status to in_progress before starting** — makes progress visible
+3. **Mark completed immediately** — keeps the list accurate
+4. **Include the full list on every write** — the tool replaces, not merges
+5. **Use priority to guide execution order** — focus on high priority first
+6. **Read before writing** to avoid overwriting concurrent changes (if multiple agents)
+7. **Keep IDs simple** — "1", "2", "3" works well for sequential tasks
+
+---
+
+## Use Cases
+
+### Multi-Step Analysis
+
+```python
+# Agent receives request to analyze codebase
+await todo_write([
+    {"id": "1", "content": "Scan project files", "status": "pending"},
+    {"id": "2", "content": "Identify code smells", "status": "pending"},
+    {"id": "3", "content": "Run security analysis", "status": "pending"},
+    {"id": "4", "content": "Generate report", "status": "pending"},
+])
+```
+
+### Incremental Processing
+
+```python
+# Process large dataset in chunks
+await todo_write([
+    {"id": "chunk_1", "content": "Process rows 0-1000", "status": "pending"},
+    {"id": "chunk_2", "content": "Process rows 1001-2000", "status": "pending"},
+    {"id": "chunk_3", "content": "Process rows 2001-3000", "status": "pending"},
+    {"id": "merge", "content": "Merge results", "status": "pending"},
+])
+```
+
+### Resumable Workflows
+
+```python
+# Check if work was interrupted
+current_tasks = await todo_read()
+if "No task list found" in current_tasks:
+    # Start fresh
+    await todo_write([...])
+else:
+    # Resume from last in_progress or pending task
+    # Parse current_tasks and continue
+```
+
+---
+
+## Limitations
+
+- **No task IDs auto-generation** — you must provide unique IDs
+- **No subtasks** — flat list only (no nested todos)
+- **No timestamps** — status changes are not timestamped
+- **No history** — previous versions are overwritten
+- **Single file** — all todos in one `tasks.json` file
+
+---
+
+## Implementation
+
+Defined in `grip/tools/todo.py`. Uses:
+- JSON serialization to `workspace/tasks.json`
+- Validation against `VALID_STATUSES` and `VALID_PRIORITIES` sets
+- Status icon mapping for readable output
+- Atomic writes to prevent corruption

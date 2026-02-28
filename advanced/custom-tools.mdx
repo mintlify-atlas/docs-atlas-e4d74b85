@@ -1,0 +1,557 @@
+---
+title: Custom Tools
+description: Develop and register custom tools using the grip Tool interface
+---
+
+Extend Grip AI with custom tools that integrate external APIs, databases, or domain-specific functionality.
+
+## Tool Interface
+
+From `grip/tools/base.py:63`:
+
+```python
+from abc import ABC, abstractmethod
+from typing import Any
+from grip.tools.base import Tool, ToolContext, ToolResult
+
+class Tool(ABC):
+    """Abstract base class for all grip tools.
+    
+    Subclasses define a unique name, description, JSON Schema for parameters,
+    and an async execute method. Tools also declare a category for grouped
+    presentation in the system prompt.
+    """
+    
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Unique identifier used in tool_call function_name."""
+        ...
+    
+    @property
+    @abstractmethod
+    def description(self) -> str:
+        """One-line description shown to the LLM."""
+        ...
+    
+    @property
+    @abstractmethod
+    def parameters(self) -> dict[str, Any]:
+        """JSON Schema (type: object) describing accepted parameters."""
+        ...
+    
+    @property
+    def category(self) -> str:
+        """Tool category for grouped system prompt display.
+        
+        Override in subclasses. Valid categories: filesystem, shell, web,
+        messaging, orchestration, finance. Defaults to 'general'.
+        """
+        return "general"
+    
+    @abstractmethod
+    async def execute(self, params: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        """Run the tool with validated parameters and return a result.
+        
+        Can return a plain string or a Pydantic BaseModel instance.
+        BaseModel instances are automatically serialized to JSON by the
+        ToolRegistry before being sent to the LLM.
+        
+        Implementations should catch their own exceptions and return
+        error messages as strings rather than raising, so the LLM can
+        see what went wrong and adapt.
+        """
+        ...
+```
+
+## ToolContext
+
+Runtime context passed to every tool execution (from `grip/tools/base.py:48`):
+
+```python
+from dataclasses import dataclass, field
+from pathlib import Path
+
+@dataclass(slots=True)
+class ToolContext:
+    """Runtime context passed to every tool execution.
+    
+    Provides access to workspace path, config values, and references
+    needed by tools that interact with the broader system (e.g. spawn,
+    message).
+    """
+    
+    workspace_path: Path
+    restrict_to_workspace: bool = False
+    shell_timeout: int = 60
+    session_key: str = ""
+    extra: dict[str, Any] = field(default_factory=dict)
+```
+
+**Key fields**:
+- `workspace_path`: Agent's workspace root (`~/.grip/workspace`)
+- `restrict_to_workspace`: If `True`, tool must not access files outside workspace
+- `shell_timeout`: Default timeout for shell commands
+- `session_key`: Current conversation session identifier
+- `extra`: Additional context (e.g., `trust_manager`, `config`)
+
+## Creating a Custom Tool
+
+### Example: Weather Tool
+
+```python
+# ~/.grip/workspace/tools/weather.py
+
+from typing import Any
+from grip.tools.base import Tool, ToolContext, ToolResult
+import httpx
+
+class WeatherTool(Tool):
+    @property
+    def name(self) -> str:
+        return "get_weather"
+    
+    @property
+    def description(self) -> str:
+        return "Get current weather for a city using OpenWeatherMap API"
+    
+    @property
+    def category(self) -> str:
+        return "web"
+    
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "city": {
+                    "type": "string",
+                    "description": "City name (e.g., 'London', 'New York')"
+                },
+                "units": {
+                    "type": "string",
+                    "enum": ["metric", "imperial"],
+                    "description": "Temperature units (metric=Celsius, imperial=Fahrenheit)",
+                    "default": "metric"
+                }
+            },
+            "required": ["city"]
+        }
+    
+    async def execute(self, params: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        """Fetch weather data from OpenWeatherMap API."""
+        city = params["city"]
+        units = params.get("units", "metric")
+        
+        # Get API key from config (passed via ctx.extra)
+        config = ctx.extra.get("config")
+        api_key = config.tools.weather_api_key if config else None
+        
+        if not api_key:
+            return "Error: OpenWeatherMap API key not configured. Set tools.weather_api_key in config.json."
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    "https://api.openweathermap.org/data/2.5/weather",
+                    params={
+                        "q": city,
+                        "units": units,
+                        "appid": api_key
+                    },
+                    timeout=10.0
+                )
+                response.raise_for_status()
+                data = response.json()
+            
+            # Format result for LLM
+            temp = data["main"]["temp"]
+            feels_like = data["main"]["feels_like"]
+            description = data["weather"][0]["description"]
+            humidity = data["main"]["humidity"]
+            wind_speed = data["wind"]["speed"]
+            
+            unit_label = "°C" if units == "metric" else "°F"
+            
+            return f"""Weather in {city}:
+            Temperature: {temp}{unit_label} (feels like {feels_like}{unit_label})
+            Conditions: {description}
+            Humidity: {humidity}%
+            Wind Speed: {wind_speed} m/s
+            """
+        
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return f"Error: City '{city}' not found. Check spelling and try again."
+            return f"Error: API request failed with status {exc.response.status_code}"
+        
+        except httpx.TimeoutException:
+            return "Error: Weather API request timed out. Try again later."
+        
+        except Exception as exc:
+            return f"Error: Failed to fetch weather data: {type(exc).__name__}: {exc}"
+```
+
+### Returning Structured Data
+
+Use Pydantic models for structured responses (from `grip/tools/base.py:26`):
+
+```python
+from pydantic import BaseModel
+from typing import Any
+from grip.tools.base import Tool, ToolContext
+
+class WeatherData(BaseModel):
+    """Structured weather response."""
+    city: str
+    temperature: float
+    feels_like: float
+    description: str
+    humidity: int
+    wind_speed: float
+    units: str
+
+class WeatherToolStructured(Tool):
+    # ... name, description, parameters same as above ...
+    
+    async def execute(self, params: dict[str, Any], ctx: ToolContext) -> WeatherData:
+        # ... fetch data ...
+        
+        return WeatherData(
+            city=city,
+            temperature=data["main"]["temp"],
+            feels_like=data["main"]["feels_like"],
+            description=data["weather"][0]["description"],
+            humidity=data["main"]["humidity"],
+            wind_speed=data["wind"]["speed"],
+            units=units
+        )
+        # Automatically serialized to JSON by ToolRegistry (base.py:192)
+```
+
+<Info>
+From `grip/tools/base.py:40`, Pydantic models are automatically serialized to indented JSON using `model_dump_json()` before being sent to the LLM.
+</Info>
+
+## Registering Custom Tools
+
+### Option 1: Direct Registration
+
+```python
+from grip.tools.base import ToolRegistry
+from my_tools.weather import WeatherTool
+
+registry = ToolRegistry()
+registry.register(WeatherTool())
+
+# Register multiple tools
+registry.register_many([
+    WeatherTool(),
+    CurrencyConverterTool(),
+    NewsSearchTool()
+])
+```
+
+### Option 2: Factory Function Pattern
+
+Follow the pattern used by built-in tools (from `grip/tools/__init__.py:44`):
+
+```python
+# ~/.grip/workspace/tools/custom_tools.py
+
+from grip.tools.base import Tool
+from .weather import WeatherTool
+from .currency import CurrencyConverterTool
+
+def create_custom_tools() -> list[Tool]:
+    """Build and return all custom tools."""
+    return [
+        WeatherTool(),
+        CurrencyConverterTool()
+    ]
+```
+
+Then register in your application:
+
+```python
+from grip.tools import create_default_registry
+from tools.custom_tools import create_custom_tools
+
+registry = create_default_registry()
+registry.register_many(create_custom_tools())
+```
+
+### Option 3: Extend Default Registry
+
+Create a custom registry builder:
+
+```python
+# ~/.grip/workspace/tools/registry.py
+
+from grip.tools import create_default_registry
+from grip.tools.base import ToolRegistry
+from .custom_tools import create_custom_tools
+
+def create_extended_registry(**kwargs) -> ToolRegistry:
+    """Create registry with built-in + custom tools."""
+    registry = create_default_registry(**kwargs)
+    registry.register_many(create_custom_tools())
+    return registry
+```
+
+## Tool Categories
+
+From `grip/tools/base.py:90`, valid categories:
+
+- `filesystem`: File and directory operations
+- `shell`: Command execution and system access
+- `web`: HTTP requests, search, scraping
+- `messaging`: Channels, email, notifications
+- `orchestration`: Subagent spawning, task delegation
+- `finance`: Stock prices, portfolio analysis
+- `general`: Uncategorized (default)
+
+Categories are used for grouping in the system prompt (`grip/tools/base.py:167`):
+
+```python
+def get_tools_by_category(self) -> dict[str, list[Tool]]:
+    """Return registered tools grouped by category for system prompt generation."""
+```
+
+## Parameter Schema Guidelines
+
+### Required vs Optional Parameters
+
+```python
+@property
+def parameters(self) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "required_param": {
+                "type": "string",
+                "description": "Must be provided"
+            },
+            "optional_param": {
+                "type": "string",
+                "description": "Can be omitted",
+                "default": "default_value"
+            }
+        },
+        "required": ["required_param"]  # Only list required params
+    }
+```
+
+### Enum Parameters
+
+```python
+"mode": {
+    "type": "string",
+    "enum": ["fast", "accurate", "balanced"],
+    "description": "Processing mode",
+    "default": "balanced"
+}
+```
+
+### Array Parameters
+
+```python
+"tags": {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": "List of tags to filter by",
+    "minItems": 1,
+    "maxItems": 10
+}
+```
+
+### Numeric Constraints
+
+```python
+"timeout": {
+    "type": "integer",
+    "description": "Request timeout in seconds",
+    "minimum": 1,
+    "maximum": 300,
+    "default": 30
+}
+```
+
+## Error Handling
+
+From `grip/tools/base.py:106`, return error strings instead of raising:
+
+```python
+async def execute(self, params: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    try:
+        result = await some_operation(params)
+        return result
+    except ValueError as exc:
+        return f"Error: Invalid input - {exc}"
+    except ConnectionError:
+        return "Error: Failed to connect to external service. Check network."
+    except Exception as exc:
+        return f"Error: Unexpected failure - {type(exc).__name__}: {exc}"
+```
+
+<Tip>
+Returning error strings (instead of raising exceptions) allows the LLM to see what went wrong and potentially retry with corrected parameters.
+</Tip>
+
+## Tool Registry Methods
+
+From `grip/tools/base.py:124`:
+
+```python
+class ToolRegistry:
+    def register(self, tool: Tool) -> None:
+        """Register a single tool."""
+    
+    def register_many(self, tools: list[Tool]) -> None:
+        """Register multiple tools at once."""
+    
+    def unregister(self, name: str) -> bool:
+        """Remove a tool by name. Returns True if removed."""
+    
+    def get(self, name: str) -> Tool | None:
+        """Retrieve a tool by name."""
+    
+    def names(self) -> list[str]:
+        """Get list of all registered tool names."""
+    
+    def get_definitions(self) -> list[dict[str, Any]]:
+        """Return OpenAI function-calling definitions for all tools."""
+    
+    async def execute(self, name: str, params: dict[str, Any], ctx: ToolContext) -> str:
+        """Look up and execute a tool by name."""
+```
+
+## Example: Database Query Tool
+
+```python
+# ~/.grip/workspace/tools/database.py
+
+import asyncpg
+from typing import Any
+from grip.tools.base import Tool, ToolContext, ToolResult
+from pydantic import BaseModel
+
+class QueryResult(BaseModel):
+    rows: list[dict]
+    row_count: int
+    columns: list[str]
+
+class PostgresQueryTool(Tool):
+    def __init__(self, connection_string: str):
+        self._conn_string = connection_string
+    
+    @property
+    def name(self) -> str:
+        return "query_database"
+    
+    @property
+    def description(self) -> str:
+        return "Execute a read-only SQL query against the PostgreSQL database"
+    
+    @property
+    def category(self) -> str:
+        return "database"
+    
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "SELECT query to execute (read-only, no INSERT/UPDATE/DELETE)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum rows to return",
+                    "default": 100,
+                    "minimum": 1,
+                    "maximum": 1000
+                }
+            },
+            "required": ["query"]
+        }
+    
+    async def execute(self, params: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        query = params["query"].strip()
+        limit = params.get("limit", 100)
+        
+        # Security: block write operations
+        query_upper = query.upper()
+        forbidden = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE"]
+        if any(kw in query_upper for kw in forbidden):
+            return "Error: Only SELECT queries are allowed. Write operations are forbidden."
+        
+        try:
+            conn = await asyncpg.connect(self._conn_string)
+            try:
+                # Add LIMIT if not present
+                if "LIMIT" not in query_upper:
+                    query = f"{query} LIMIT {limit}"
+                
+                rows = await conn.fetch(query)
+                
+                if not rows:
+                    return "Query returned 0 rows."
+                
+                # Convert to list of dicts
+                result_rows = [dict(row) for row in rows]
+                columns = list(rows[0].keys()) if rows else []
+                
+                return QueryResult(
+                    rows=result_rows,
+                    row_count=len(result_rows),
+                    columns=columns
+                )
+            finally:
+                await conn.close()
+        
+        except asyncpg.PostgresSyntaxError as exc:
+            return f"Error: SQL syntax error - {exc}"
+        except asyncpg.PostgresError as exc:
+            return f"Error: Database error - {exc}"
+        except Exception as exc:
+            return f"Error: Query failed - {type(exc).__name__}: {exc}"
+```
+
+## Best Practices
+
+1. **Clear descriptions**: LLM uses description to decide when to call the tool
+2. **Detailed parameter descriptions**: Include examples and constraints
+3. **Return errors as strings**: Let the LLM see and handle failures
+4. **Use categories**: Help organize tools in system prompts
+5. **Validate inputs**: Check parameters before expensive operations
+6. **Set timeouts**: Prevent tools from hanging indefinitely
+7. **Use Pydantic for structured output**: Automatic JSON serialization
+8. **Document expected behavior**: Add docstrings to `execute()` method
+9. **Handle rate limits**: Implement backoff for external APIs
+10. **Log tool execution**: Use `loguru.logger` for debugging
+
+## Testing Custom Tools
+
+```python
+import asyncio
+from pathlib import Path
+from grip.tools.base import ToolContext
+from my_tools.weather import WeatherTool
+
+async def test_weather_tool():
+    tool = WeatherTool()
+    ctx = ToolContext(
+        workspace_path=Path.home() / ".grip" / "workspace",
+        extra={"config": {"tools": {"weather_api_key": "test-key"}}}
+    )
+    
+    result = await tool.execute(
+        {"city": "London", "units": "metric"},
+        ctx
+    )
+    print(result)
+
+asyncio.run(test_weather_tool())
+```

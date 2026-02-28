@@ -1,0 +1,600 @@
+---
+title: "grip mcp"
+description: "Manage MCP (Model Context Protocol) server configurations with list, add, remove, and presets commands"
+---
+
+## Overview
+
+The `grip mcp` command manages MCP (Model Context Protocol) server integrations, allowing the AI agent to connect to external tools and services.
+
+## Subcommands
+
+- `grip mcp list` - List configured MCP servers
+- `grip mcp add` - Add an MCP server configuration
+- `grip mcp remove` - Remove an MCP server
+- `grip mcp presets` - Add popular MCP server presets
+- `grip mcp login` - Authenticate with OAuth-enabled servers
+
+## grip mcp list
+
+Display all configured MCP servers:
+
+```bash
+grip mcp list
+```
+
+**Example output:**
+
+```
+╭─ Configured MCP Servers ──────────────────────────────────────────────────╮
+│ ┌──────────────┬────────┬──────────────────────────────────┬─────────┐   │
+│ │ Name         │ Type   │ Config                           │ Enabled │   │
+│ ├──────────────┼────────┼──────────────────────────────────┼─────────┤   │
+│ │ todoist      │ HTTP   │ https://ai.todoist.net/mcp       │ Yes     │   │
+│ │ excalidraw   │ HTTP   │ https://mcp.excalidraw.com       │ Yes     │   │
+│ │ filesystem   │ stdio  │ npx @modelcontextprotocol/...    │ Yes     │   │
+│ │ git          │ stdio  │ npx @modelcontextprotocol/...    │ Yes     │   │
+│ └──────────────┴────────┴──────────────────────────────────┴─────────┘   │
+╰───────────────────────────────────────────────────────────────────────────╯
+```
+
+**If no servers configured:**
+
+```
+No MCP servers configured
+Use grip mcp presets to add popular servers
+```
+
+### Connection Types
+
+- **HTTP** - HTTP/HTTPS endpoints
+- **SSE** - Server-Sent Events streams
+- **stdio** - Local process communication
+
+## grip mcp add
+
+Add a new MCP server configuration:
+
+```bash
+grip mcp add <name> [OPTIONS]
+```
+
+### HTTP/SSE Servers
+
+```bash
+grip mcp add todoist --url https://ai.todoist.net/mcp
+grip mcp add excalidraw --url https://mcp.excalidraw.com
+grip mcp add supabase --url https://mcp.supabase.com/mcp --type http
+```
+
+### stdio Servers (npx)
+
+```bash
+grip mcp add filesystem \
+  --command npx \
+  --args "-y,@modelcontextprotocol/server-filesystem,/home/user"
+
+grip mcp add git \
+  --command npx \
+  --args "-y,@modelcontextprotocol/server-git"
+```
+
+### With Authentication Headers
+
+```bash
+grip mcp add api-server \
+  --url https://api.example.com/mcp \
+  --header "Authorization:Bearer sk-abc123" \
+  --header "X-API-Key:xyz789"
+```
+
+### With OAuth Configuration
+
+```bash
+grip mcp add oauth-server \
+  --url https://api.example.com \
+  --oauth-client-id "client_123" \
+  --oauth-auth-url "https://auth.example.com/oauth/authorize" \
+  --oauth-token-url "https://auth.example.com/oauth/token" \
+  --oauth-scopes "read,write"
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--url` | HTTP/SSE endpoint URL |
+| `--command` | Command to execute (e.g., `npx`, `node`, `python`) |
+| `--args` | Comma-separated command arguments |
+| `--header` | HTTP headers (can be used multiple times) |
+| `--type` | Transport type: `http`, `sse`, or `stdio` (auto-detected) |
+| `--timeout` | Connection timeout in seconds (default: 60) |
+| `--oauth-client-id` | OAuth 2.0 client ID |
+| `--oauth-auth-url` | OAuth authorization endpoint |
+| `--oauth-token-url` | OAuth token exchange endpoint |
+| `--oauth-scopes` | Comma-separated OAuth scopes |
+
+## grip mcp remove
+
+Remove an MCP server configuration:
+
+```bash
+grip mcp remove <name>
+```
+
+### Example
+
+```bash
+grip mcp remove todoist
+```
+
+**Output:**
+```
+Removed MCP server 'todoist'
+```
+
+**If not found:**
+```
+Error: MCP server 'todoist' not found
+```
+
+## grip mcp presets
+
+Quickly add popular MCP servers from presets:
+
+```bash
+grip mcp presets [server_names...]
+grip mcp presets --all
+```
+
+### List Available Presets
+
+```bash
+grip mcp presets
+```
+
+**Output:**
+
+```
+Available MCP Server Presets:
+
+┌──────────────┬─────────────────────────────────────────────────────────┐
+│ Name         │ Command/URL                                             │
+├──────────────┼─────────────────────────────────────────────────────────┤
+│ todoist      │ npx -y mcp-remote https://ai.todoist.net/mcp            │
+│ excalidraw   │ https://mcp.excalidraw.com                              │
+│ firecrawl    │ npx -y firecrawl-mcp                                    │
+│ bluesky      │ npx -y @modelcontextprotocol/server-bluesky             │
+│ filesystem   │ npx -y @modelcontextprotocol/server-filesystem /        │
+│ git          │ npx -y @modelcontextprotocol/server-git                 │
+│ memory       │ npx -y @modelcontextprotocol/server-memory              │
+│ postgres     │ npx -y @modelcontextprotocol/server-postgres            │
+│ sqlite       │ npx -y @modelcontextprotocol/server-sqlite              │
+│ fetch        │ npx -y @modelcontextprotocol/server-fetch               │
+│ puppeteer    │ npx -y @modelcontextprotocol/server-puppeteer           │
+│ stack        │ npx -y mcp-remote mcp.stackoverflow.com                 │
+│ tomba        │ npx -y tomba-mcp-server                                 │
+│ supabase     │ https://mcp.supabase.com/mcp                            │
+└──────────────┴─────────────────────────────────────────────────────────┘
+
+Run: grip mcp presets <name> [<name>...]
+Or:  grip mcp presets --all
+```
+
+### Add Specific Presets
+
+```bash
+# Single server
+grip mcp presets todoist
+
+# Multiple servers
+grip mcp presets todoist excalidraw git
+
+# All available presets
+grip mcp presets --all
+```
+
+**Output:**
+```
+Added 3 MCP server(s): todoist, excalidraw, git
+```
+
+## grip mcp login
+
+Authenticate with OAuth-enabled MCP servers:
+
+```bash
+grip mcp login <name>
+```
+
+### Example
+
+```bash
+grip mcp login supabase
+```
+
+**Output:**
+```
+Connecting to supabase (will open browser for login)...
+Login successful for 'supabase' (12 tools)
+```
+
+### OAuth Flow
+
+1. Command opens browser
+2. User authenticates with the service
+3. Service redirects back with authorization code
+4. Grip exchanges code for access token
+5. Token is stored securely
+6. Server connection is established
+
+<Note>
+  OAuth tokens are stored in `~/.grip/tokens/` and automatically refreshed when expired.
+</Note>
+
+## MCP Server Presets
+
+### Productivity
+
+#### Todoist
+
+Task management integration:
+
+```bash
+grip mcp presets todoist
+```
+
+**Capabilities:**
+- Create, read, update, delete tasks
+- Manage projects and labels
+- Set due dates and priorities
+
+#### Excalidraw
+
+Diagram creation:
+
+```bash
+grip mcp presets excalidraw
+```
+
+**Capabilities:**
+- Create diagrams and flowcharts
+- Export to PNG/SVG
+- Collaborative editing
+
+### Development
+
+#### Git
+
+Git repository operations:
+
+```bash
+grip mcp presets git
+```
+
+**Capabilities:**
+- Read repository history
+- Show diffs and commits
+- Branch management
+- Read file contents
+
+#### Filesystem
+
+File system access:
+
+```bash
+grip mcp presets filesystem
+```
+
+**Capabilities:**
+- Read/write files
+- List directories
+- File search
+- Move/copy/delete operations
+
+<Note>
+  Filesystem server has access to the path specified in `args`. Use `/` for full access or limit to specific directories.
+</Note>
+
+### Data & Databases
+
+#### PostgreSQL
+
+PostgreSQL database integration:
+
+```bash
+grip mcp presets postgres
+```
+
+**Capabilities:**
+- Execute queries
+- List tables and schemas
+- Read table data
+
+#### SQLite
+
+SQLite database integration:
+
+```bash
+grip mcp presets sqlite
+```
+
+**Capabilities:**
+- Query local SQLite databases
+- Schema inspection
+- Data retrieval
+
+#### Supabase
+
+Supabase platform integration:
+
+```bash
+grip mcp presets supabase
+grip mcp login supabase
+```
+
+**Capabilities:**
+- Database queries
+- Storage operations
+- Authentication
+
+### Web & Scraping
+
+#### Firecrawl
+
+Web scraping and crawling:
+
+```bash
+grip mcp presets firecrawl
+```
+
+**Capabilities:**
+- Scrape web pages
+- Extract structured data
+- Crawl websites
+
+#### Fetch
+
+HTTP requests:
+
+```bash
+grip mcp presets fetch
+```
+
+**Capabilities:**
+- Make HTTP requests
+- Download content
+- API calls
+
+#### Puppeteer
+
+Browser automation:
+
+```bash
+grip mcp presets puppeteer
+```
+
+**Capabilities:**
+- Automated browsing
+- Screenshot capture
+- Form filling
+- JavaScript execution
+
+### Social & Communication
+
+#### Bluesky
+
+Bluesky social network:
+
+```bash
+grip mcp presets bluesky
+```
+
+**Capabilities:**
+- Post updates
+- Read timeline
+- Search posts
+
+### Knowledge
+
+#### Memory
+
+Persistent memory storage:
+
+```bash
+grip mcp presets memory
+```
+
+**Capabilities:**
+- Store key-value pairs
+- Retrieve saved information
+- Knowledge persistence
+
+#### Stack Overflow
+
+Stack Overflow integration:
+
+```bash
+grip mcp presets stack
+```
+
+**Capabilities:**
+- Search questions
+- Read answers
+- Get code examples
+
+## Configuration Storage
+
+MCP servers are stored in the config file:
+
+```json
+{
+  "tools": {
+    "mcp_servers": {
+      "todoist": {
+        "command": "npx",
+        "args": ["-y", "mcp-remote", "https://ai.todoist.net/mcp"]
+      },
+      "excalidraw": {
+        "url": "https://mcp.excalidraw.com"
+      },
+      "git": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-git"]
+      }
+    }
+  }
+}
+```
+
+### Manual Configuration
+
+```bash
+vim $(grip config path)
+```
+
+**Edit `tools.mcp_servers` section:**
+
+```json
+{
+  "tools": {
+    "mcp_servers": {
+      "custom-server": {
+        "url": "https://api.example.com/mcp",
+        "headers": {
+          "Authorization": "Bearer sk-abc123"
+        },
+        "timeout": 30,
+        "enabled": true
+      }
+    }
+  }
+}
+```
+
+## Usage Examples
+
+### Task Management
+
+```bash
+# Add Todoist
+grip mcp presets todoist
+
+# Use in agent
+grip agent -m "Add task: Review PR #123 by EOD"
+grip agent -m "What tasks are due today?"
+grip agent -m "Mark task 'Review PR' as complete"
+```
+
+### Diagram Creation
+
+```bash
+# Add Excalidraw
+grip mcp presets excalidraw
+
+# Use in agent
+grip agent -m "Create a system architecture diagram with API, DB, and Cache"
+grip agent -m "Draw a flowchart for the login process"
+```
+
+### Git Operations
+
+```bash
+# Add Git server
+grip mcp presets git
+
+# Use in agent
+cd ~/myproject
+grip agent -m "Show recent commits"
+grip agent -m "What changed in the last commit?"
+grip agent -m "List all branches"
+```
+
+### Database Queries
+
+```bash
+# Add PostgreSQL
+grip mcp presets postgres
+
+# Configure connection
+export POSTGRES_CONNECTION_STRING="postgresql://user:pass@localhost/db"
+
+# Use in agent
+grip agent -m "List all tables"
+grip agent -m "Query users table for active users"
+grip agent -m "Show table schema for orders"
+```
+
+### Web Scraping
+
+```bash
+# Add Firecrawl
+grip mcp presets firecrawl
+
+# Configure API key
+export FIRECRAWL_API_KEY="fc-abc123"
+
+# Use in agent
+grip agent -m "Scrape product prices from https://example.com/shop"
+grip agent -m "Extract article text from this URL: ..."
+```
+
+## Troubleshooting
+
+### Server not connecting
+
+```bash
+# Check configuration
+grip mcp list
+
+# Test with verbose logging
+grip agent --verbose -m "Test MCP connection"
+
+# Verify npx packages
+npx -y @modelcontextprotocol/server-git --version
+
+# Check network
+curl -I https://ai.todoist.net/mcp
+```
+
+### OAuth login fails
+
+```bash
+# Clear stored tokens
+rm ~/.grip/tokens/server-name.json
+
+# Retry login
+grip mcp login server-name
+
+# Check browser for blocked popups
+```
+
+### Tools not appearing
+
+```bash
+# Regenerate TOOLS.md
+rm ~/grip/workspace/TOOLS.md
+grip agent -m "test"
+
+# Check for errors
+cat ~/grip/workspace/TOOLS.md | grep -A10 "MCP Servers"
+```
+
+### stdio server errors
+
+```bash
+# Verify command exists
+which npx
+
+# Test command directly
+npx -y @modelcontextprotocol/server-git
+
+# Check permissions
+ls -la ~/.npm
+```
+
+## Related Commands
+
+- **[grip agent](/cli/agent)** - Use MCP servers with the agent
+- **[grip config](/cli/config)** - View MCP server configuration
+- **Interactive /mcp** - Manage servers from agent interactive mode

@@ -1,0 +1,454 @@
+---
+title: "grip config"
+description: "View and modify Grip AI configuration with show, set, and path commands"
+---
+
+## Overview
+
+The `grip config` command provides tools to view and modify your Grip AI configuration. All commands automatically mask sensitive data like API keys and tokens.
+
+## Subcommands
+
+- `grip config show` - Print current configuration (API keys masked)
+- `grip config set` - Update a configuration value by dot-path
+- `grip config path` - Print the config file path
+
+## grip config show
+
+Display the complete configuration with syntax highlighting:
+
+```bash
+grip config show
+```
+
+**Example output:**
+
+```bash
+╭─ grip Config ────────────────────────────────────╮
+│ {                                                │
+│   "agents": {                                    │
+│     "defaults": {                                │
+│       "model": "gpt-4o",                         │
+│       "provider": "openai",                      │
+│       "engine": "litellm",                       │
+│       "workspace": "~/grip/workspace",           │
+│       "max_iterations": 10,                      │
+│       "temperature": 0.7                         │
+│     }                                            │
+│   },                                             │
+│   "providers": {                                 │
+│     "openai": {                                  │
+│       "api_key": "sk-***xyz"                     │
+│     },                                           │
+│     "anthropic": {                               │
+│       "api_key": "sk-***abc"                     │
+│     }                                            │
+│   },                                             │
+│   "gateway": {                                   │
+│     "host": "0.0.0.0",                           │
+│     "port": 8080                                 │
+│   }                                              │
+│ }                                                │
+│                                                  │
+│ ~/.grip/config.json                              │
+╰──────────────────────────────────────────────────╯
+```
+
+### Security Features
+
+**API keys and tokens are automatically masked:**
+
+- Shows first 4 and last 4 characters
+- Masks middle portion with `***`
+- Detects keys containing: `sk-`, `key-`, `token`, `secret`
+- Applies to values matching common key patterns
+
+**Example:**
+- Original: `sk-proj-abcdefghijklmnopqrstuvwxyz123456`
+- Masked: `sk-p***3456`
+
+<Note>
+  Sensitive data is masked only in output. The actual config file remains unchanged.
+</Note>
+
+## grip config set
+
+Update a configuration value using dot-notation:
+
+```bash
+grip config set <key> <value>
+```
+
+### Usage
+
+**Key format:** Dot-separated path (e.g., `agents.defaults.model`)
+
+**Value:** New value to set (automatically coerced to correct type)
+
+### Examples
+
+#### Change Model
+
+```bash
+grip config set agents.defaults.model gpt-4o
+Updated agents.defaults.model = gpt-4o
+```
+
+#### Update Temperature
+
+```bash
+grip config set agents.defaults.temperature 0.3
+Updated agents.defaults.temperature = 0.3
+```
+
+#### Change Gateway Port
+
+```bash
+grip config set gateway.port 3000
+Updated gateway.port = 3000
+```
+
+#### Enable Channel
+
+```bash
+grip config set channels.telegram.enabled true
+Updated channels.telegram.enabled = true
+```
+
+#### Set Provider
+
+```bash
+grip config set agents.defaults.provider anthropic
+Updated agents.defaults.provider = anthropic
+```
+
+#### Update Max Iterations
+
+```bash
+grip config set agents.defaults.max_iterations 15
+Updated agents.defaults.max_iterations = 15
+```
+
+### Type Coercion
+
+Values are automatically converted to match the existing type:
+
+| Existing Type | Input Examples | Result |
+|--------------|---------------|--------|
+| `bool` | `true`, `false`, `1`, `0`, `yes`, `no` | Boolean |
+| `int` | `42`, `100`, `0` | Integer |
+| `float` | `0.7`, `1.5`, `3.14` | Float |
+| `string` | Any text | String |
+
+**Examples:**
+
+```bash
+# Boolean
+grip config set heartbeat.enabled true    # → true (bool)
+grip config set heartbeat.enabled yes     # → true (bool)
+grip config set heartbeat.enabled 1       # → true (bool)
+
+# Integer
+grip config set gateway.port 3000         # → 3000 (int)
+grip config set cron.enabled false        # → false (bool)
+
+# Float
+grip config set agents.defaults.temperature 0.8  # → 0.8 (float)
+
+# String
+grip config set agents.defaults.model gpt-4o     # → "gpt-4o" (string)
+```
+
+### Error Handling
+
+#### Invalid Key Path
+
+```bash
+$ grip config set invalid.path value
+Error: Invalid config path 'invalid.path'. 'invalid' not found.
+```
+
+#### Invalid Value Type
+
+```bash
+$ grip config set gateway.port abc
+Error: Validation error: invalid literal for int() with base 10: 'abc'
+```
+
+#### Nested Path Not Found
+
+```bash
+$ grip config set agents.defaults.nonexistent value
+Error: Invalid config path 'agents.defaults.nonexistent'. 'nonexistent' not found.
+```
+
+## grip config path
+
+Print the configuration file location:
+
+```bash
+grip config path
+```
+
+**Output:**
+```
+/home/user/.grip/config.json
+```
+
+### Use Cases
+
+**Edit config manually:**
+```bash
+vim $(grip config path)
+nano $(grip config path)
+code $(grip config path)
+```
+
+**Backup config:**
+```bash
+cp $(grip config path) $(grip config path).backup
+```
+
+**View raw config:**
+```bash
+cat $(grip config path)
+jq . $(grip config path)
+```
+
+**Check file permissions:**
+```bash
+ls -la $(grip config path)
+```
+
+## Configuration Structure
+
+### Complete Example
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": "gpt-4o",
+      "provider": "openai",
+      "engine": "litellm",
+      "workspace": "~/grip/workspace",
+      "max_iterations": 10,
+      "temperature": 0.7,
+      "dry_run": false
+    }
+  },
+  "providers": {
+    "openai": {
+      "api_key": "sk-proj-...",
+      "base_url": null
+    },
+    "anthropic": {
+      "api_key": "sk-ant-...",
+      "base_url": null
+    },
+    "openrouter": {
+      "api_key": "sk-or-...",
+      "base_url": "https://openrouter.ai/api/v1"
+    }
+  },
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "api": {
+      "max_request_body_bytes": 1048576,
+      "rate_limit_per_minute": 60,
+      "rate_limit_per_minute_per_ip": 10
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "bot_token": "123456:ABC-DEF..."
+    },
+    "discord": {
+      "enabled": false,
+      "bot_token": ""
+    },
+    "slack": {
+      "enabled": false,
+      "bot_token": "",
+      "signing_secret": ""
+    }
+  },
+  "cron": {
+    "enabled": true,
+    "timezone": "America/New_York"
+  },
+  "heartbeat": {
+    "enabled": true,
+    "interval_minutes": 60,
+    "reply_to": "telegram:123456"
+  },
+  "tools": {
+    "mcp_servers": {
+      "todoist": {
+        "command": "npx",
+        "args": ["-y", "mcp-remote", "https://ai.todoist.net/mcp"]
+      }
+    }
+  },
+  "platform": {
+    "os": "linux"
+  }
+}
+```
+
+## Common Configuration Tasks
+
+### Switch Models
+
+```bash
+# Use GPT-4o
+grip config set agents.defaults.model gpt-4o
+
+# Use Claude Sonnet 4
+grip config set agents.defaults.model claude-sonnet-4
+grip config set agents.defaults.provider anthropic
+
+# Use via OpenRouter
+grip config set agents.defaults.model anthropic/claude-opus-4
+grip config set agents.defaults.provider openrouter
+```
+
+### Configure Gateway
+
+```bash
+# Change port
+grip config set gateway.port 3000
+
+# Bind to localhost only
+grip config set gateway.host 127.0.0.1
+
+# Adjust rate limits
+grip config set gateway.api.rate_limit_per_minute 120
+grip config set gateway.api.rate_limit_per_minute_per_ip 20
+```
+
+### Enable Channels
+
+```bash
+# Enable Telegram
+grip config set channels.telegram.enabled true
+grip config set channels.telegram.bot_token "123456:ABC-DEF..."
+
+# Enable Discord
+grip config set channels.discord.enabled true
+grip config set channels.discord.bot_token "MTk4..."
+```
+
+### Configure Heartbeat
+
+```bash
+# Enable heartbeat
+grip config set heartbeat.enabled true
+
+# Set interval (in minutes)
+grip config set heartbeat.interval_minutes 120
+
+# Set reply destination
+grip config set heartbeat.reply_to "telegram:123456"
+```
+
+### Adjust Agent Behavior
+
+```bash
+# Reduce temperature for more deterministic responses
+grip config set agents.defaults.temperature 0.3
+
+# Increase max iterations for complex tasks
+grip config set agents.defaults.max_iterations 20
+
+# Change workspace location
+grip config set agents.defaults.workspace "~/custom/workspace"
+```
+
+## Environment Variables
+
+API keys can be set via environment variables instead of config file:
+
+```bash
+# OpenAI
+export OPENAI_API_KEY="sk-proj-..."
+
+# Anthropic
+export ANTHROPIC_API_KEY="sk-ant-..."
+
+# OpenRouter
+export OPENROUTER_API_KEY="sk-or-..."
+
+# Start grip
+grip agent
+```
+
+<Note>
+  Environment variables take precedence over config file values.
+</Note>
+
+## Manual Editing
+
+You can edit the config file directly:
+
+```bash
+vim $(grip config path)
+```
+
+**After editing, verify the config:**
+
+```bash
+grip config show
+```
+
+**If there are validation errors:**
+
+```bash
+$ grip agent
+Error: Validation error: Invalid configuration...
+```
+
+Revert to backup or fix the JSON syntax.
+
+## Backup and Restore
+
+### Create Backup
+
+```bash
+cp $(grip config path) $(grip config path).backup.$(date +%Y%m%d)
+```
+
+### Restore from Backup
+
+```bash
+cp $(grip config path).backup.20260228 $(grip config path)
+grip config show
+```
+
+### Version Control
+
+```bash
+cd ~/.grip
+git init
+echo "*.backup" >> .gitignore
+git add config.json
+git commit -m "Initial config"
+
+# After changes
+git diff config.json
+git add config.json
+git commit -m "Update model to gpt-4o"
+```
+
+<Note>
+  Never commit API keys to public repositories. Use environment variables or encrypted storage.
+</Note>
+
+## Related Commands
+
+- **[grip agent](/cli/agent)** - Uses config for model, provider, workspace
+- **[grip gateway](/cli/gateway)** - Reads gateway, channels, and cron config
+- **[grip mcp](/cli/mcp)** - Modifies tools.mcp_servers config section
+- **grip onboard** - Interactive setup wizard to create initial config

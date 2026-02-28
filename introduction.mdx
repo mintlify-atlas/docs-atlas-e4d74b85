@@ -1,0 +1,179 @@
+---
+title: Welcome to Grip AI
+description: A self-hostable AI agent framework powered by Claude Agent SDK with multi-model fallback, tool execution, and multi-channel chat integration
+---
+
+<img
+  src="https://img.shields.io/badge/python-3.12%2B-blue"
+  alt="Python 3.12+"
+/>
+<img
+  src="https://img.shields.io/badge/engine-Claude%20Agent%20SDK-blueviolet"
+  alt="Claude Agent SDK"
+/>
+<img
+  src="https://img.shields.io/badge/providers-15-orange"
+  alt="15 LLM Providers"
+/>
+<img
+  src="https://img.shields.io/badge/tests-770-brightgreen"
+  alt="770 Tests"
+/>
+
+## What is Grip AI?
+
+Grip is a production-ready AI agent platform built on the **Claude Agent SDK** with **LiteLLM fallback** for 15+ other providers. It's designed for developers who need autonomous agents with real tool execution, persistent memory, and multi-channel deployment.
+
+- **115 Python modules** (~21,200 lines of code)
+- **770 comprehensive tests** ensuring reliability
+- **26 built-in tools** across 16 modules
+- **Self-hostable** with Docker support
+- **Multi-channel** chat (Telegram, Discord, Slack)
+- **REST API** with bearer auth and rate limiting
+
+<Note>
+Grip uses the Claude Agent SDK as its primary engine for Claude models, providing a full agentic loop with automatic tool execution and context management. For non-Claude models, it seamlessly falls back to LiteLLM with Grip's internal agent loop.
+</Note>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Dual-Engine Architecture" icon="engine">
+    Claude Agent SDK for Anthropic models with LiteLLM fallback for OpenAI, DeepSeek, Groq, Gemini, Ollama, and 10+ other providers
+  </Card>
+  
+  <Card title="26 Built-in Tools" icon="wrench">
+    File operations, shell execution, web search (Brave + DuckDuckGo), deep research, task tracking, messaging, subagent spawning, finance, and more
+  </Card>
+  
+  <Card title="Multi-Channel Chat" icon="messages">
+    Deploy to Telegram, Discord, and Slack with bot commands, file handling, and voice message support
+  </Card>
+  
+  <Card title="Task Tracking" icon="list-check">
+    Persistent task lists with workspace storage — active tasks auto-injected into system prompts so agents never lose context
+  </Card>
+  
+  <Card title="Multi-Agent Workflows" icon="sitemap">
+    DAG-based orchestration with dependency resolution and parallel execution using Kahn's algorithm
+  </Card>
+  
+  <Card title="Model Context Protocol" icon="plug">
+    Native MCP server integration with stdio and HTTP/SSE transport — 14 preset servers included
+  </Card>
+  
+  <Card title="Cron Scheduling" icon="clock">
+    Natural language scheduling with channel delivery — perfect for reminders and periodic tasks
+  </Card>
+  
+  <Card title="Dual-Layer Memory" icon="brain">
+    MEMORY.md + HISTORY.md with TF-IDF retrieval, auto-consolidation, mid-run compaction, and semantic caching
+  </Card>
+  
+  <Card title="Production-Ready API" icon="server">
+    FastAPI with bearer auth, rate limiting (30/min per-IP, 60/min per-token), audit logging, and security headers
+  </Card>
+  
+  <Card title="Security First" icon="shield">
+    Directory trust model, shell deny-list (50+ patterns), credential scrubbing, Shield runtime threat feed policy
+  </Card>
+  
+  <Card title="Long-Running Tasks" icon="infinity">
+    Unlimited iterations by default with automatic mid-run compaction to prevent context overflow
+  </Card>
+  
+  <Card title="Cost Optimization" icon="dollar-sign">
+    Model tier routing for complexity-based model selection — simple queries go to fast/cheap models, complex tasks to powerful models
+  </Card>
+</CardGroup>
+
+## Supported LLM Providers
+
+Grip supports **15 LLM providers** through its dual-engine architecture:
+
+- **Anthropic** (via Claude Agent SDK) — Claude 3.5 Sonnet, Claude 3 Opus, Claude 4 Sonnet
+- **OpenRouter** — Access to 200+ models from multiple providers
+- **OpenAI** — GPT-4o, GPT-4 Turbo, GPT-3.5
+- **DeepSeek** — DeepSeek Chat, DeepSeek Coder
+- **Groq** — Ultra-fast inference for Llama, Mixtral
+- **Google Gemini** — Gemini Pro, Gemini Flash
+- **Qwen** — Alibaba's Qwen models
+- **MiniMax** — Chinese LLM provider
+- **Moonshot (Kimi)** — Long-context models
+- **Ollama Cloud** — Hosted Ollama models
+- **Ollama Local** — Self-hosted models via Ollama
+- **vLLM** — Local inference server
+- **Llama.cpp** — Quantized local models
+- **LM Studio** — Desktop LLM interface
+- **Any OpenAI-compatible API** — Custom endpoints supported
+
+<Warning>
+The Claude Agent SDK engine is recommended for Claude models as it provides the best agentic experience. For all other providers, use the `litellm` engine.
+</Warning>
+
+## Use Cases
+
+### Development Automation
+- Code review and refactoring
+- Bug fixing with git blame integration
+- Documentation generation
+- Test writing and coverage analysis
+
+### Research & Analysis
+- Deep web research with multi-step fact gathering
+- Data analysis and visualization
+- Financial market research (via yfinance)
+- Competitive intelligence gathering
+
+### Operations & DevOps
+- Server monitoring and alerts
+- Deployment automation
+- Log analysis and debugging
+- Cron-based health checks
+
+### Personal Assistant
+- Schedule management and reminders
+- Email composition and editing
+- Document generation
+- Multi-platform messaging
+
+## Architecture Overview
+
+Grip's architecture is built around a central gateway that orchestrates all components:
+
+```
+grip gateway
+├── REST API (FastAPI)          27 endpoints
+├── Channels                    Telegram, Discord, Slack
+├── Message Bus                 asyncio.Queue decoupling
+├── Engine (pluggable)          SDKRunner | LiteLLMRunner
+├── Tool Registry               26 tools across 16 modules
+├── MCP Manager                 stdio + HTTP/SSE servers
+├── Memory                      Dual-layer with TF-IDF
+├── Session Manager             Per-key JSON with LRU cache
+├── Cron Service                croniter + channel delivery
+├── Heartbeat Service           Periodic agent wake-up
+└── Workflow Engine             DAG execution
+```
+
+For a detailed breakdown, see the [Architecture](/architecture) page.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Grip via PyPI or build from source
+  </Card>
+  
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get your first agent running in 5 minutes
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/configuration/overview">
+    Configure engines, providers, and tools
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore the REST API endpoints
+  </Card>
+</CardGroup>

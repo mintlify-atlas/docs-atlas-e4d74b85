@@ -1,0 +1,375 @@
+---
+title: Installation
+description: Install Grip AI via PyPI or build from source with optional extras for Discord, Slack, MCP, and more
+---
+
+## Requirements
+
+Before installing Grip, ensure you have:
+
+- **Python 3.12 or higher**
+- **[uv](https://docs.astral.sh/uv/)** package manager (recommended) or pip
+- An **API key** from one of the supported providers:
+  - Anthropic (for Claude Agent SDK)
+  - OpenAI, DeepSeek, Groq, etc. (for LiteLLM engine)
+
+<Note>
+The `uv` package manager is strongly recommended for faster installation and dependency resolution. Install it with:
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+</Note>
+
+## Installation Methods
+
+<Tabs>
+  <Tab title="PyPI (Recommended)">
+    ### Install via PyPI
+
+    The fastest way to get started is to install Grip from PyPI:
+
+    <Steps>
+      <Step title="Install with uv">
+        ```bash
+        uv tool install grip-ai
+        ```
+        
+        This installs Grip globally and makes the `grip` command available in your PATH.
+      </Step>
+
+      <Step title="Alternative: Install with pip">
+        If you prefer pip over uv:
+        ```bash
+        pip install grip-ai
+        ```
+      </Step>
+
+      <Step title="Verify installation">
+        ```bash
+        grip --help
+        ```
+        
+        You should see the Grip CLI help output with available commands.
+      </Step>
+    </Steps>
+
+    The base installation includes:
+    - Claude Agent SDK
+    - LiteLLM with 15+ provider support
+    - Telegram bot integration
+    - FastAPI REST API
+    - All 26 built-in tools
+    - Task tracking and memory
+    - Cron scheduling
+  </Tab>
+
+  <Tab title="From Source">
+    ### Install from Source
+
+    For development or to access the latest features:
+
+    <Steps>
+      <Step title="Clone the repository">
+        ```bash
+        git clone https://github.com/5unnykum4r/grip-ai.git
+        cd grip-ai
+        ```
+      </Step>
+
+      <Step title="Install base dependencies">
+        ```bash
+        uv sync
+        ```
+        
+        This creates a virtual environment and installs all core dependencies including:
+        - Claude Agent SDK
+        - LiteLLM
+        - Telegram bot (python-telegram-bot)
+        - FastAPI + uvicorn
+        - All core tools and features
+      </Step>
+
+      <Step title="Register the grip command globally">
+        ```bash
+        uv tool install --editable .
+        ```
+        
+        This makes the `grip` command available system-wide while keeping it linked to your source directory for development.
+      </Step>
+
+      <Step title="Verify installation">
+        ```bash
+        grip --help
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Optional Extras
+
+Grip supports optional dependencies for additional features:
+
+<CodeGroup>
+```bash Discord
+# Add Discord bot support
+uv sync --extra discord
+```
+
+```bash Slack
+# Add Slack bot support (Socket Mode)
+uv sync --extra slack
+```
+
+```bash MCP
+# Add Model Context Protocol server integration
+uv sync --extra mcp
+```
+
+```bash Finance
+# Add financial tools (yfinance)
+uv sync --extra finance
+```
+
+```bash Visualization
+# Add data visualization (plotext for ASCII charts)
+uv sync --extra viz
+```
+
+```bash Observability
+# Add OpenTelemetry tracing
+uv sync --extra observe
+```
+
+```bash All Extras
+# Install everything
+uv sync --extra all
+```
+</CodeGroup>
+
+<Warning>
+Extras only work when installing from source. When using PyPI installation, install extras with:
+```bash
+pip install grip-ai[discord,slack,mcp]
+```
+</Warning>
+
+## Package Details
+
+Grip is published to PyPI as `grip-ai`:
+
+- **Package name:** `grip-ai`
+- **Command:** `grip`
+- **Version:** 1.0.0
+- **License:** MIT
+- **Python support:** 3.12+
+
+View the package on PyPI: [https://pypi.org/project/grip-ai/](https://pypi.org/project/grip-ai/)
+
+## Development Installation
+
+If you're contributing to Grip or want to run tests:
+
+<Steps>
+  <Step title="Clone and enter directory">
+    ```bash
+    git clone https://github.com/5unnykum4r/grip-ai.git
+    cd grip-ai
+    ```
+  </Step>
+
+  <Step title="Install with dev dependencies">
+    ```bash
+    uv sync --group dev
+    ```
+    
+    This installs additional tools:
+    - `ruff` — Fast Python linter and formatter
+    - `pytest` — Testing framework
+    - `pytest-asyncio` — Async test support
+  </Step>
+
+  <Step title="Run linter">
+    ```bash
+    uv run ruff check grip/ tests/
+    ```
+  </Step>
+
+  <Step title="Run tests">
+    ```bash
+    uv run pytest
+    ```
+    
+    Grip includes **770 tests** across 50+ test files covering:
+    - Tool execution and validation
+    - Memory and session management
+    - API endpoints and auth
+    - Workflow DAG execution
+    - MCP server integration
+    - Security guards (trust model, shell deny-list)
+  </Step>
+
+  <Step title="Run tests with coverage">
+    ```bash
+    uv run pytest --cov=grip
+    ```
+  </Step>
+</Steps>
+
+## Docker Installation
+
+Grip is Docker-ready and can be configured entirely via environment variables:
+
+<CodeGroup>
+```bash Build from Source
+# Clone repository
+git clone https://github.com/5unnykum4r/grip-ai.git
+cd grip-ai
+
+# Build Docker image
+docker build -t grip .
+```
+
+```bash Run with Claude SDK
+# Run with Claude Agent SDK (recommended for Claude models)
+docker run -d \
+  -p 18800:18800 \
+  -e ANTHROPIC_API_KEY="sk-ant-..." \
+  -e GRIP_CHANNELS__TELEGRAM__ENABLED="true" \
+  -e GRIP_CHANNELS__TELEGRAM__TOKEN="bot-token" \
+  -v ~/.grip:/home/grip/.grip \
+  --name grip-agent \
+  grip
+```
+
+```bash Run with LiteLLM
+# Run with LiteLLM engine (for non-Claude models)
+docker run -d \
+  -p 18800:18800 \
+  -e GRIP_AGENTS__DEFAULTS__ENGINE="litellm" \
+  -e GRIP_PROVIDERS__OPENAI__API_KEY="sk-..." \
+  -e GRIP_CHANNELS__TELEGRAM__ENABLED="true" \
+  -e GRIP_CHANNELS__TELEGRAM__TOKEN="bot-token" \
+  -v ~/.grip:/home/grip/.grip \
+  --name grip-agent \
+  grip
+```
+</CodeGroup>
+
+### Environment Variable Format
+
+Grip supports `GRIP_` prefixed environment variables for any config value. Use double underscores (`__`) for nested keys:
+
+- `GRIP_AGENTS__DEFAULTS__MODEL` → `agents.defaults.model`
+- `GRIP_PROVIDERS__ANTHROPIC__API_KEY` → `providers.anthropic.api_key`
+- `GRIP_GATEWAY__PORT` → `gateway.port`
+- `GRIP_CHANNELS__TELEGRAM__TOKEN` → `channels.telegram.token`
+
+See the [Environment Variables](/deployment/environment-variables) page for a complete reference.
+
+## Verify Installation
+
+After installation, verify everything is working:
+
+```bash
+# Check version and help
+grip --help
+
+# Run diagnostics
+grip status
+
+# View current configuration
+grip config show
+```
+
+Expected output:
+```
+Grip AI v1.0.0
+Workspace: /home/user/.grip/workspace
+Config: /home/user/.grip/config.json
+Engine: claude_sdk
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Command not found: grip">
+    If `grip` is not found after installation:
+    
+    **Via uv tool install:**
+    ```bash
+    # Ensure uv bin directory is in PATH
+    export PATH="$HOME/.cargo/bin:$PATH"
+    ```
+    
+    **Via pip:**
+    ```bash
+    # Check if pip bin directory is in PATH
+    python -m pip show grip-ai
+    
+    # If not in PATH, use:
+    python -m grip --help
+    ```
+  </Accordion>
+
+  <Accordion title="Python version too old">
+    Grip requires Python 3.12+. Check your version:
+    ```bash
+    python --version
+    ```
+    
+    If you have an older version, install Python 3.12 using:
+    - **macOS:** `brew install python@3.12`
+    - **Ubuntu/Debian:** `sudo apt install python3.12`
+    - **Arch:** `sudo pacman -S python`
+    - **Windows:** Download from [python.org](https://python.org)
+  </Accordion>
+
+  <Accordion title="uv not found">
+    Install the uv package manager:
+    ```bash
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    ```
+    
+    Alternatively, use pip instead of uv:
+    ```bash
+    pip install grip-ai
+    ```
+  </Accordion>
+
+  <Accordion title="Permission denied during installation">
+    If you encounter permission errors:
+    
+    **Don't use sudo with uv or pip** — this can cause permission issues.
+    
+    Instead, install in user space:
+    ```bash
+    pip install --user grip-ai
+    ```
+    
+    Or use uv tool install (already user-scoped):
+    ```bash
+    uv tool install grip-ai
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run the onboarding wizard and chat with your first agent
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/configuration/overview">
+    Set up API keys, choose your engine, and configure tools
+  </Card>
+  
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Understand Grip's dual-engine architecture and component design
+  </Card>
+  
+  <Card title="Deployment" icon="docker" href="/deployment/docker">
+    Deploy Grip to production with Docker
+  </Card>
+</CardGroup>

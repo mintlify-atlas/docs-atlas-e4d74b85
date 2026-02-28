@@ -1,0 +1,693 @@
+---
+title: Architecture
+description: Deep dive into Grip AI's dual-engine architecture, component design, and system integration
+---
+
+## System Overview
+
+Grip AI is built around a **gateway-centric architecture** that orchestrates multiple components through a central message bus. The gateway runs as a single long-lived process (`grip gateway`) that coordinates:
+
+- **REST API** (FastAPI) — 27 endpoints with bearer auth and rate limiting
+- **Chat Channels** (Telegram, Discord, Slack) — Multi-platform bot integration
+- **Message Bus** (asyncio.Queue) — Decouples channels from the engine
+- **Pluggable Engine** (SDKRunner | LiteLLMRunner) — Dual-engine for Claude + 15 providers
+- **Tool Registry** — 26 built-in tools across 16 modules
+- **MCP Manager** — Model Context Protocol server integration
+- **Memory Layer** — Dual-layer memory with TF-IDF retrieval
+- **Session Manager** — Per-key JSON files with LRU cache
+- **Cron Service** — Scheduled task execution with channel delivery
+- **Heartbeat Service** — Periodic autonomous agent wake-up
+- **Workflow Engine** — Multi-agent DAG orchestration
+
+## Architecture Diagram
+
+```
+grip gateway
+├── REST API (FastAPI :18800)          27 endpoints, bearer auth, rate limiting
+│   ├── /api/v1/chat                   blocking + SSE streaming
+│   ├── /api/v1/sessions               CRUD
+│   ├── /api/v1/tools                  list + execute
+│   ├── /api/v1/mcp                    server management + OAuth
+│   └── /api/v1/management             config, cron, skills, memory, metrics, workflows
+├── Channels
+│   ├── Telegram                       bot commands, photos, docs, voice
+│   ├── Discord                        discord.py integration
+│   └── Slack                          Socket Mode (slack-sdk)
+├── Message Bus                        asyncio.Queue decoupling channels ↔ engine
+├── Engine (pluggable)
+│   ├── SDKRunner (claude_sdk)         Claude Agent SDK — full agentic loop
+│   └── LiteLLMRunner (litellm)        any model via LiteLLM + grip's AgentLoop
+├── Tool Registry                      26 tools across 16 modules
+│   ├── filesystem                     read/write/edit/append/list/delete/trash
+│   ├── shell                          exec with 50+ pattern deny-list
+│   ├── web                            web_search + web_fetch
+│   ├── research                       deep web_research
+│   ├── message                        send_message + send_file
+│   ├── spawn                          subagent spawn/check/list
+│   ├── todo                           todo_write + todo_read (task tracking)
+│   ├── workflow                       multi-agent DAG execution
+│   ├── scheduler                      cron scheduling
+│   ├── finance                        yfinance (optional)
+│   └── mcp                            MCP tool proxy
+├── MCP Manager                        stdio + HTTP/SSE servers, OAuth 2.0 + PKCE
+├── Memory
+│   ├── MEMORY.md                      durable facts (TF-IDF search, Jaccard dedup)
+│   ├── HISTORY.md                     timestamped summaries (time-decay search)
+│   ├── SemanticCache                  SHA-256 keyed response cache with TTL
+│   └── KnowledgeBase                  structured typed facts
+├── Session Manager                    per-key JSON files, LRU cache (200)
+├── Cron Service                       croniter schedules, channel delivery
+├── Heartbeat Service                  periodic autonomous agent wake-up
+└── Workflow Engine                    DAG execution with topological parallelism
+```
+
+## Dual-Engine Architecture
+
+Grip uses a **pluggable engine design** with two implementations:
+
+<Tabs>
+  <Tab title="Claude Agent SDK">
+    ### SDKRunner (claude_sdk)
+    
+    The **Claude Agent SDK** is the recommended engine for Anthropic's Claude models. It provides:
+    
+    - **Full agentic loop** — SDK handles tool execution, context management, and iteration
+    - **Native Claude support** — Optimized for Claude 3.5 Sonnet, Claude 4 Sonnet, Claude Opus
+    - **Streaming responses** — Real-time token streaming for low-latency UX
+    - **Automatic retries** — Built-in retry logic with exponential backoff
+    - **Context window management** — SDK handles message compaction and summarization
+    
+    **Configuration:**
+    ```json
+    {
+      "agents": {
+        "defaults": {
+          "engine": "claude_sdk",
+          "sdk_model": "claude-sonnet-4-20250514"
+        }
+      },
+      "providers": {
+        "anthropic": {
+          "api_key": "sk-ant-api03-..."
+        }
+      }
+    }
+    ```
+    
+    **When to use:**
+    - You're using Claude models (Sonnet, Opus, Haiku)
+    - You want the best agentic experience with minimal configuration
+    - You need streaming responses and automatic context management
+  </Tab>
+
+  <Tab title="LiteLLM">
+    ### LiteLLMRunner (litellm)
+    
+    The **LiteLLM engine** uses Grip's internal agent loop with LiteLLM for API calls, supporting 15+ providers:
+    
+    - **Multi-provider support** — OpenAI, DeepSeek, Groq, Gemini, Ollama, OpenRouter, and more
+    - **Unified API** — Single interface for all providers
+    - **Grip's agent loop** — Full control over tool execution, memory, and iteration logic
+    - **Cost tracking** — Per-request token usage and cost estimates
+    - **Fallback chains** — Automatic failover to backup models
+    
+    **Supported Providers:**
+    - OpenAI (GPT-4o, GPT-4 Turbo)
+    - OpenRouter (200+ models)
+    - DeepSeek (DeepSeek Chat, DeepSeek Coder)
+    - Groq (Llama, Mixtral with ultra-fast inference)
+    - Google Gemini (Gemini Pro, Gemini Flash)
+    - Qwen, MiniMax, Moonshot (Kimi)
+    - Ollama Cloud & Local
+    - vLLM, Llama.cpp, LM Studio
+    - Any OpenAI-compatible API
+    
+    **Configuration:**
+    ```json
+    {
+      "agents": {
+        "defaults": {
+          "engine": "litellm",
+          "model": "openai/gpt-4o"
+        }
+      },
+      "providers": {
+        "openai": {
+          "api_key": "sk-..."
+        }
+      }
+    }
+    ```
+    
+    **When to use:**
+    - You're using non-Claude models
+    - You need multi-provider support or failover
+    - You want fine-grained control over the agent loop
+    - You're running local models (Ollama, vLLM, Llama.cpp)
+  </Tab>
+</Tabs>
+
+<Note>
+The engine is configured via `agents.defaults.engine` and can be changed at runtime with `grip config set agents.defaults.engine "litellm"`.
+</Note>
+
+## Message Flow
+
+### Interactive CLI Flow
+
+```
+User Input (grip agent)
+    ↓
+CLI Handler
+    ↓
+Engine.run(message)
+    ↓
+[Tool Execution Loop]
+    ├── Parse tool calls
+    ├── Execute tools (filesystem, web, shell, etc.)
+    ├── Update memory (MEMORY.md, HISTORY.md)
+    ├── Check task list (tasks.json)
+    └── Repeat until done
+    ↓
+Response → CLI Output
+```
+
+### Gateway Flow (Multi-Channel)
+
+```
+Telegram/Discord/Slack Bot
+    ↓
+Channel Handler
+    ↓
+Message Bus (asyncio.Queue)
+    ↓
+Gateway Dispatcher
+    ↓
+Engine.run(message)
+    ↓
+[Tool Execution Loop]
+    ↓
+Response → Message Bus
+    ↓
+Channel Handler
+    ↓
+Bot sends reply
+```
+
+### REST API Flow
+
+```
+HTTP Request → POST /api/v1/chat
+    ↓
+Auth Middleware (bearer token)
+    ↓
+Rate Limiter (30/min per-IP, 60/min per-token)
+    ↓
+Chat Endpoint Handler
+    ↓
+Engine.run(message)
+    ↓
+[Tool Execution Loop]
+    ↓
+JSON Response
+```
+
+## Tool Registry
+
+Grip includes **26 built-in tools** organized into 16 modules:
+
+<Tabs>
+  <Tab title="File Operations">
+    ### filesystem
+    
+    | Tool | Description |
+    |------|-------------|
+    | `file_read` | Read file contents (text or binary) |
+    | `file_write` | Write/overwrite file |
+    | `file_edit` | Patch-based editing (line ranges) |
+    | `file_append` | Append to file |
+    | `file_list` | List directory contents |
+    | `file_delete` | Delete file or directory |
+    | `file_trash` | Move to trash (safer than delete) |
+    
+    All file tools respect the **directory trust model** — only workspace and explicitly trusted paths are accessible.
+  </Tab>
+
+  <Tab title="Shell & Web">
+    ### shell
+    
+    | Tool | Description |
+    |------|-------------|
+    | `exec` | Execute shell commands with 50+ pattern deny-list |
+    
+    **Security guards:**
+    - Blocked: `rm -rf /`, `mkfs`, `shutdown`, `reboot`
+    - Blocked: `cat ~/.ssh/id_rsa`, `curl | bash`
+    - Timeout enforced (default: 60s)
+    
+    ### web
+    
+    | Tool | Description |
+    |------|-------------|
+    | `web_search` | Search via Brave or DuckDuckGo |
+    | `web_fetch` | Fetch and parse web pages |
+    
+    ### research
+    
+    | Tool | Description |
+    |------|-------------|
+    | `web_research` | Multi-step deep research with fact gathering |
+  </Tab>
+
+  <Tab title="Task & Memory">
+    ### todo
+    
+    | Tool | Description |
+    |------|-------------|
+    | `todo_write` | Create or replace task list (persisted to `tasks.json`) |
+    | `todo_read` | Read current task list with statuses |
+    
+    **Task persistence:**
+    - Active tasks injected into system prompt
+    - Survives context compaction
+    - Visible in workspace: `~/.grip/workspace/tasks.json`
+    
+    ### message
+    
+    | Tool | Description |
+    |------|-------------|
+    | `send_message` | Send message to user (useful for subagents) |
+    | `send_file` | Send file attachment to user |
+  </Tab>
+
+  <Tab title="Advanced">
+    ### spawn
+    
+    | Tool | Description |
+    |------|-------------|
+    | `spawn_subagent` | Spawn independent agent with custom profile |
+    | `check_subagent` | Check subagent status and output |
+    | `list_subagents` | List all running subagents |
+    
+    ### workflow
+    
+    | Tool | Description |
+    |------|-------------|
+    | `run_workflow` | Execute multi-agent DAG workflow |
+    
+    ### scheduler
+    
+    | Tool | Description |
+    |------|-------------|
+    | `schedule_task` | Create cron job with natural language |
+    
+    ### finance (optional)
+    
+    | Tool | Description |
+    |------|-------------|
+    | `get_stock_info` | Fetch stock data via yfinance |
+    | `get_stock_history` | Historical price data |
+    
+    ### mcp
+    
+    | Tool | Description |
+    |------|-------------|
+    | `mcp_call_tool` | Proxy calls to MCP servers |
+  </Tab>
+</Tabs>
+
+See the [Built-in Tools](/tools/filesystem) reference for detailed documentation.
+
+## Memory System
+
+Grip implements a **dual-layer memory architecture** for long-term knowledge retention:
+
+<CardGroup cols={2}>
+  <Card title="MEMORY.md" icon="book">
+    **Durable facts and knowledge**
+    
+    - TF-IDF search for relevant fact retrieval
+    - Jaccard deduplication (threshold: 0.8)
+    - Automatic consolidation when size exceeds 100KB
+    - Injected into system prompt on every request
+    
+    Example:
+    ```markdown
+    # Grip AI Memory
+    
+    ## User Preferences
+    - Prefers Python 3.12+
+    - Uses vim for editing
+    
+    ## Project Context
+    - Building a FastAPI REST API
+    - Using PostgreSQL for database
+    ```
+  </Card>
+  
+  <Card title="HISTORY.md" icon="clock">
+    **Timestamped conversation summaries**
+    
+    - Time-decay weighted search
+    - Auto-summarization of old sessions
+    - Used for context when sessions are compacted
+    
+    Example:
+    ```markdown
+    # Conversation History
+    
+    ## 2026-02-28 14:30
+    User asked for help building a REST API.
+    Created 5-step task plan and implemented
+    authentication endpoints.
+    
+    ## 2026-02-27 09:15
+    Discussed deployment strategies.
+    Recommended Docker + nginx reverse proxy.
+    ```
+  </Card>
+  
+  <Card title="SemanticCache" icon="database">
+    **Response caching**
+    
+    - SHA-256 keyed cache
+    - TTL-based expiration (default: 1 hour)
+    - Reduces API calls for repeated queries
+    
+    Automatically caches:
+    - Web search results
+    - File read operations
+    - Tool execution outputs
+  </Card>
+  
+  <Card title="KnowledgeBase" icon="graduation-cap">
+    **Structured facts**
+    
+    - Typed entities (person, place, concept)
+    - Confidence scores
+    - Relationship tracking
+    
+    Example:
+    ```python
+    {
+      "entity": "FastAPI",
+      "type": "technology",
+      "facts": [
+        "Python web framework",
+        "Supports async/await",
+        "Auto-generates OpenAPI docs"
+      ],
+      "confidence": 0.95
+    }
+    ```
+  </Card>
+</CardGroup>
+
+### Mid-Run Compaction
+
+When in-flight messages exceed **50**, Grip automatically:
+
+1. Selects the oldest 30 messages
+2. Sends them to the `consolidation_model` for summarization
+3. Replaces the 30 messages with a single summary block
+4. Keeps the **20 most recent** messages intact
+5. Saves the full history to `HISTORY.md`
+
+This enables unlimited iterations without context overflow.
+
+**Configuration:**
+```bash
+# Use a cheap model for consolidation
+grip config set agents.defaults.consolidation_model "openrouter/google/gemini-flash-2.0"
+```
+
+## Session Management
+
+Sessions are identified by a `session_key` (default: `"default"`):
+
+- **Storage:** JSON files in `~/.grip/workspace/state/sessions/`
+- **LRU Cache:** 200 sessions in-memory for fast access
+- **Persistence:** Auto-saved after every exchange
+- **Isolation:** Each session has independent memory, history, and task list
+
+**Session structure:**
+```json
+{
+  "key": "default",
+  "model": "claude-sonnet-4-20250514",
+  "engine": "claude_sdk",
+  "messages": [
+    {"role": "user", "content": "Hello"},
+    {"role": "assistant", "content": "Hi! How can I help?"}
+  ],
+  "created_at": "2026-02-28T10:00:00Z",
+  "updated_at": "2026-02-28T10:01:00Z",
+  "message_count": 2,
+  "tool_calls": 0
+}
+```
+
+## Security Architecture
+
+Grip implements **multi-layered security** to make self-hosting safe:
+
+<Tabs>
+  <Tab title="Directory Trust Model">
+    ### Directory Trust Model
+    
+    The agent is **sandboxed to its workspace by default**. Access to external directories requires explicit opt-in:
+    
+    - **Workspace:** Always accessible (`~/.grip/workspace/`)
+    - **Trusted Directories:** User must grant access via `/trust <path>`
+    - **Persistent:** Trust decisions saved to `state/trusted_dirs.json`
+    - **Validation:** Every file operation checks trust before execution
+    
+    **Example flow:**
+    ```
+    ❯ Read the file ~/Downloads/report.pdf
+    
+    ❌ Permission denied: /home/user/Downloads is not trusted
+    
+    ❯ /trust ~/Downloads
+    ✓ Granted access to: /home/user/Downloads
+    
+    ❯ Read the file ~/Downloads/report.pdf
+    ✓ Reading /home/user/Downloads/report.pdf...
+    ```
+  </Tab>
+
+  <Tab title="Shield Policy">
+    ### Shield Policy (Runtime Threat Feed)
+    
+    Grip injects a `SHIELD.md` policy into the system prompt that defines how to evaluate actions against a threat feed:
+    
+    **Scopes covered:**
+    - `prompt` — User input evaluation
+    - `skill.install` — Skill installation
+    - `skill.execute` — Skill execution
+    - `tool.call` — Tool execution
+    - `network.egress` — Outbound network requests
+    - `secrets.read` — API key and credential access
+    - `mcp` — MCP server operations
+    
+    **Enforcement actions:**
+    - `block` — Stop immediately
+    - `require_approval` — Ask user for confirmation
+    - `log` — Continue normally (default)
+    
+    **How it works:**
+    1. Threat feed loaded at runtime
+    2. Agent evaluates each action against active threats
+    3. Confidence threshold (>= 0.85) determines enforceability
+    4. Strictest action wins when multiple threats match
+    
+    Example threat:
+    ```json
+    {
+      "id": "T001",
+      "category": "exfiltration",
+      "scope": "network.egress",
+      "action": "block",
+      "recommendation_agent": "Block all curl requests to unknown domains",
+      "confidence": 0.92
+    }
+    ```
+  </Tab>
+
+  <Tab title="Shell Deny-List">
+    ### Shell Command Deny-List
+    
+    Every `exec` tool call is scanned against **50+ dangerous patterns**:
+    
+    **Blocked commands:**
+    - Destructive: `rm -rf /`, `mkfs`, `dd if=/dev/zero`
+    - System control: `shutdown`, `reboot`, `systemctl poweroff`
+    - Credential exfiltration: `cat ~/.ssh/id_rsa`, `cat .env`
+    - Remote code injection: `curl | bash`, `wget -O - | sh`
+    - Privilege escalation: `sudo su`, `chmod 4755`
+    
+    **Implementation:**
+    ```python
+    DENY_PATTERNS = [
+        r"rm\s+-rf\s+/",
+        r"mkfs",
+        r"shutdown",
+        r"cat\s+~/.ssh/id_rsa",
+        r"curl.*\|.*bash",
+        # ... 45 more patterns
+    ]
+    ```
+  </Tab>
+
+  <Tab title="Credential Scrubbing">
+    ### Credential Scrubbing
+    
+    Tool outputs are automatically scrubbed before being stored in message history:
+    
+    **Patterns detected:**
+    - OpenAI/Anthropic API keys: `sk-...`, `sk-ant-...`
+    - GitHub tokens: `ghp_...`, `gho_...`
+    - Slack tokens: `xoxb-...`, `xoxp-...`
+    - Bearer tokens: `Bearer <token>`
+    - Password parameters: `password=...`, `pwd=...`
+    
+    **Example:**
+    ```python
+    # Before scrubbing
+    output = "API Key: sk-proj-abc123"
+    
+    # After scrubbing
+    output = "API Key: [REDACTED]"
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+While Grip implements multiple security layers, no system is infallible. Always:
+- Run Grip with a non-root user
+- Review critical actions before execution
+- Use `/trust` sparingly and only for necessary directories
+- Monitor agent behavior in production environments
+</Warning>
+
+## Workflow Engine
+
+Grip supports **multi-agent workflows** with DAG-based orchestration:
+
+### Workflow Structure
+
+```json
+{
+  "name": "research-and-summarize",
+  "description": "Research a topic and produce a summary",
+  "steps": [
+    {
+      "name": "research",
+      "prompt": "Research the latest developments in quantum computing",
+      "profile": "researcher",
+      "timeout_seconds": 600
+    },
+    {
+      "name": "summarize",
+      "prompt": "Summarize the following research: {{research.output}}",
+      "profile": "writer",
+      "depends_on": ["research"]
+    },
+    {
+      "name": "visualize",
+      "prompt": "Create a chart of key findings: {{research.output}}",
+      "profile": "analyst",
+      "depends_on": ["research"]
+    },
+    {
+      "name": "report",
+      "prompt": "Compile final report: {{summarize.output}} {{visualize.output}}",
+      "depends_on": ["summarize", "visualize"]
+    }
+  ]
+}
+```
+
+### Execution Model
+
+1. **DAG Construction** — Build dependency graph from `depends_on` fields
+2. **Cycle Detection** — Validate no circular dependencies (fails at creation time)
+3. **Topological Sort** — Kahn's algorithm for execution order
+4. **Parallel Execution** — Steps with no dependencies run in parallel
+5. **Variable Interpolation** — `{{step_name.output}}` replaced with actual outputs
+6. **Error Handling** — Failed step stops dependent steps but allows independent paths
+
+**Execution:**
+```bash
+grip workflow run research-and-summarize
+```
+
+**Output:**
+```
+[Parallel: research]
+✓ research completed in 45s
+
+[Parallel: summarize, visualize]
+✓ summarize completed in 12s
+✓ visualize completed in 8s
+
+[Sequential: report]
+✓ report completed in 5s
+
+Workflow completed in 70s
+```
+
+See [Workflows](/features/workflows) for detailed documentation.
+
+## Performance & Scalability
+
+### Benchmarks
+
+| Metric | Value |
+|--------|-------|
+| Cold start time | < 2s |
+| API response time (chat) | 50-200ms (excluding LLM latency) |
+| Concurrent sessions | 200 (LRU cached) |
+| Tool execution throughput | 10-50/sec (depends on tool type) |
+| Memory consolidation | < 5s for 100KB MEMORY.md |
+| Workflow DAG build | < 100ms for 100-node graph |
+
+### Resource Usage
+
+**Minimal deployment (Docker):**
+- RAM: 256MB idle, 512MB under load
+- CPU: < 5% idle, 20-40% during tool execution
+- Disk: 50MB (code + dependencies)
+
+**Production deployment:**
+- RAM: 1GB (recommended for 50+ concurrent sessions)
+- CPU: 2 cores (for parallel workflow execution)
+- Disk: 1GB (includes session storage and memory files)
+
+### Scaling Strategies
+
+1. **Horizontal Scaling** — Run multiple gateway instances behind a load balancer
+2. **Session Sharding** — Route sessions to specific instances by hash
+3. **Database Backend** — Replace JSON file storage with PostgreSQL/Redis
+4. **Message Queue** — Use RabbitMQ/Redis for inter-service communication
+5. **Caching** — Add Redis cache layer for semantic cache and session storage
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book" href="/concepts/engines">
+    Learn about engines, agents, tools, memory, and sessions
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/configuration/overview">
+    Configure engines, providers, tools, and security
+  </Card>
+  
+  <Card title="Built-in Tools" icon="wrench" href="/tools/filesystem">
+    Explore all 26 tools and their capabilities
+  </Card>
+  
+  <Card title="Deployment" icon="docker" href="/deployment/docker">
+    Deploy to production with Docker and environment variables
+  </Card>
+</CardGroup>

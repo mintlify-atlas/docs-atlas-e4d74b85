@@ -1,0 +1,398 @@
+---
+title: Environment Variables
+description: Complete reference for GRIP_ prefixed environment variables and nested configuration
+---
+
+## Overview
+
+Grip supports full configuration via environment variables using the `GRIP_` prefix. Nested configuration keys use double underscore (`__`) as a delimiter.
+
+<Note>
+Environment variables override values in `~/.grip/config.json`. This makes Docker and production deployments easier.
+</Note>
+
+## Format
+
+The environment variable naming follows this pattern:
+
+```
+GRIP_<SECTION>__<SUBSECTION>__<KEY>
+```
+
+### Examples
+
+```bash
+# Config path: agents.defaults.model
+GRIP_AGENTS__DEFAULTS__MODEL="openai/gpt-4o"
+
+# Config path: providers.anthropic.api_key
+GRIP_PROVIDERS__ANTHROPIC__API_KEY="sk-ant-..."
+
+# Config path: gateway.port
+GRIP_GATEWAY__PORT=18800
+```
+
+## Agent Configuration
+
+### Engine Settings
+
+```bash
+# Engine selection: 'claude_sdk' (default) or 'litellm'
+GRIP_AGENTS__DEFAULTS__ENGINE="claude_sdk"
+
+# Claude SDK model (when engine=claude_sdk)
+GRIP_AGENTS__DEFAULTS__SDK_MODEL="claude-sonnet-4-6"
+# Options: claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001
+
+# LiteLLM model identifier (when engine=litellm)
+GRIP_AGENTS__DEFAULTS__MODEL="openrouter/anthropic/claude-sonnet-4"
+
+# Optional: explicit provider override
+GRIP_AGENTS__DEFAULTS__PROVIDER="openrouter"
+```
+
+### Model Parameters
+
+```bash
+# Maximum tokens per response (1-200000)
+GRIP_AGENTS__DEFAULTS__MAX_TOKENS=8192
+
+# Sampling temperature (0.0-2.0)
+GRIP_AGENTS__DEFAULTS__TEMPERATURE=0.7
+
+# Max tool iterations (0=unlimited)
+GRIP_AGENTS__DEFAULTS__MAX_TOOL_ITERATIONS=0
+
+# Memory window (5-500 messages)
+GRIP_AGENTS__DEFAULTS__MEMORY_WINDOW=50
+```
+
+### Memory & Caching
+
+```bash
+# Auto-consolidate when session exceeds 2x memory window
+GRIP_AGENTS__DEFAULTS__AUTO_CONSOLIDATE=true
+
+# Model for summarization (empty = use main model)
+GRIP_AGENTS__DEFAULTS__CONSOLIDATION_MODEL="openrouter/google/gemini-flash-2.0"
+
+# Enable semantic caching
+GRIP_AGENTS__DEFAULTS__SEMANTIC_CACHE_ENABLED=true
+
+# Cache TTL in seconds (60-86400)
+GRIP_AGENTS__DEFAULTS__SEMANTIC_CACHE_TTL=3600
+```
+
+### Workspace
+
+```bash
+# Workspace directory
+GRIP_AGENTS__DEFAULTS__WORKSPACE="/home/grip/.grip/workspace"
+
+# Dry run mode (simulates tool execution)
+GRIP_AGENTS__DEFAULTS__DRY_RUN=false
+```
+
+### SDK Permissions
+
+```bash
+# SDK permission mode: 'acceptEdits', 'bypassPermissions', or 'default'
+GRIP_AGENTS__DEFAULTS__SDK_PERMISSION_MODE="acceptEdits"
+```
+
+### Token Limits
+
+```bash
+# Max daily tokens (0=unlimited)
+GRIP_AGENTS__DEFAULTS__MAX_DAILY_TOKENS=0
+
+# Enable self-correction on failed tool calls
+GRIP_AGENTS__DEFAULTS__ENABLE_SELF_CORRECTION=true
+```
+
+## Provider API Keys
+
+Each provider has an API key and optional base URL:
+
+<CodeGroup>
+```bash Anthropic
+ANTHROPIC_API_KEY="sk-ant-..."
+GRIP_PROVIDERS__ANTHROPIC__API_KEY="sk-ant-..."
+```
+
+```bash OpenAI
+GRIP_PROVIDERS__OPENAI__API_KEY="sk-..."
+GRIP_PROVIDERS__OPENAI__API_BASE="https://api.openai.com/v1"
+```
+
+```bash OpenRouter
+GRIP_PROVIDERS__OPENROUTER__API_KEY="sk-or-..."
+GRIP_PROVIDERS__OPENROUTER__API_BASE="https://openrouter.ai/api/v1"
+```
+
+```bash DeepSeek
+GRIP_PROVIDERS__DEEPSEEK__API_KEY="sk-..."
+GRIP_PROVIDERS__DEEPSEEK__API_BASE="https://api.deepseek.com"
+```
+
+```bash Groq
+GRIP_PROVIDERS__GROQ__API_KEY="gsk-..."
+```
+
+```bash Gemini
+GRIP_PROVIDERS__GEMINI__API_KEY="..."
+```
+
+```bash Ollama
+GRIP_PROVIDERS__OLLAMA__API_BASE="http://localhost:11434"
+```
+</CodeGroup>
+
+<Note>
+`ANTHROPIC_API_KEY` (without `GRIP_` prefix) is also supported for compatibility.
+</Note>
+
+## Channel Configuration
+
+### Telegram
+
+```bash
+# Enable Telegram channel
+GRIP_CHANNELS__TELEGRAM__ENABLED=true
+
+# Bot token from @BotFather
+GRIP_CHANNELS__TELEGRAM__TOKEN="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+
+# Restrict to specific user IDs (JSON array, empty = allow all)
+GRIP_CHANNELS__TELEGRAM__ALLOW_FROM='["12345678","87654321"]'
+```
+
+### Discord
+
+```bash
+# Enable Discord channel
+GRIP_CHANNELS__DISCORD__ENABLED=true
+
+# Bot token from Discord Developer Portal
+GRIP_CHANNELS__DISCORD__TOKEN="YOUR_DISCORD_BOT_TOKEN"
+
+# Restrict to specific user IDs
+GRIP_CHANNELS__DISCORD__ALLOW_FROM='["123456789012345678"]'
+```
+
+### Slack
+
+```bash
+# Enable Slack channel (Socket Mode)
+GRIP_CHANNELS__SLACK__ENABLED=true
+
+# Bot token (xoxb-...)
+GRIP_CHANNELS__SLACK__TOKEN="xoxb-..."
+
+# App-level token for Socket Mode
+GRIP_CHANNELS__SLACK__EXTRA='{"app_token": "xapp-..."}'
+```
+
+## Gateway & API
+
+### Network
+
+```bash
+# Gateway host (use 0.0.0.0 for external access)
+GRIP_GATEWAY__HOST="127.0.0.1"
+
+# Gateway port
+GRIP_GATEWAY__PORT=18800
+```
+
+### API Security
+
+```bash
+# API auth token (auto-generated if empty)
+GRIP_GATEWAY__API__AUTH_TOKEN="grip_your_secret_token"
+
+# Rate limiting
+GRIP_GATEWAY__API__RATE_LIMIT_PER_MINUTE=60
+GRIP_GATEWAY__API__RATE_LIMIT_PER_MINUTE_PER_IP=30
+
+# Request size limit (bytes)
+GRIP_GATEWAY__API__MAX_REQUEST_BODY_BYTES=1048576
+
+# CORS allowed origins (JSON array)
+GRIP_GATEWAY__API__CORS_ALLOWED_ORIGINS='["https://example.com"]'
+
+# Enable direct tool execution endpoint (disabled by default)
+GRIP_GATEWAY__API__ENABLE_TOOL_EXECUTE=false
+```
+
+## Tools Configuration
+
+### Web Search
+
+```bash
+# DuckDuckGo (enabled by default, no API key needed)
+GRIP_TOOLS__WEB__DUCKDUCKGO__ENABLED=true
+GRIP_TOOLS__WEB__DUCKDUCKGO__MAX_RESULTS=5
+
+# Brave Search
+GRIP_TOOLS__WEB__BRAVE__ENABLED=true
+GRIP_TOOLS__WEB__BRAVE__API_KEY="BSA..."
+GRIP_TOOLS__WEB__BRAVE__MAX_RESULTS=5
+
+# Perplexity
+GRIP_TOOLS__WEB__PERPLEXITY__ENABLED=true
+GRIP_TOOLS__WEB__PERPLEXITY__API_KEY="pplx-..."
+```
+
+### Shell & File Access
+
+```bash
+# Shell command timeout (seconds)
+GRIP_TOOLS__SHELL_TIMEOUT=60
+
+# Directory trust mode: 'prompt', 'trust_all', or 'workspace_only'
+GRIP_TOOLS__TRUST_MODE="prompt"
+
+# Legacy workspace restriction (use trust_mode instead)
+GRIP_TOOLS__RESTRICT_TO_WORKSPACE=false
+```
+
+### MCP Servers
+
+MCP server configuration via environment variables:
+
+```bash
+# Configure a single MCP server
+GRIP_TOOLS__MCP_SERVERS='{"firecrawl": {"command": "npx", "args": ["-y", "@firecrawl/mcp-server"], "env": {"FIRECRAWL_API_KEY": "fc-..."}, "enabled": true}}'
+```
+
+For complex MCP configurations, use `config.json` instead.
+
+### MCP Tool Search
+
+```bash
+# MCP tool search behavior
+# 'auto' = activate when tools exceed 10% of context
+# 'auto:N' = custom threshold (e.g., 'auto:15')
+# 'true' = always enabled
+# 'false' = disabled
+GRIP_TOOLS__ENABLE_TOOL_SEARCH="auto"
+```
+
+## Cron & Scheduling
+
+```bash
+# Cron job execution timeout (minutes)
+GRIP_CRON__EXEC_TIMEOUT_MINUTES=5
+```
+
+## Heartbeat
+
+```bash
+# Enable periodic autonomous agent runs
+GRIP_HEARTBEAT__ENABLED=false
+
+# Interval between heartbeats (minutes, 5-1440)
+GRIP_HEARTBEAT__INTERVAL_MINUTES=30
+
+# Session key for delivery (e.g., telegram:12345)
+GRIP_HEARTBEAT__REPLY_TO="telegram:12345678"
+```
+
+<Warning>
+Heartbeat runs consume tokens (2-5K per run). Set interval appropriately to avoid unnecessary costs.
+</Warning>
+
+## Model Tiers (Cost-Aware Routing)
+
+```bash
+# Enable cost-aware routing
+GRIP_AGENTS__MODEL_TIERS__ENABLED=true
+
+# Low complexity model (greetings, lookups)
+GRIP_AGENTS__MODEL_TIERS__LOW="openrouter/google/gemini-flash-2.0"
+
+# Medium complexity model (empty = use default)
+GRIP_AGENTS__MODEL_TIERS__MEDIUM=""
+
+# High complexity model (architecture, debugging)
+GRIP_AGENTS__MODEL_TIERS__HIGH="openrouter/anthropic/claude-sonnet-4"
+```
+
+## Complete Docker Example
+
+A production-ready Docker run command with common environment variables:
+
+```bash
+docker run -d \
+  -p 18800:18800 \
+  --name grip-agent \
+  -e ANTHROPIC_API_KEY="sk-ant-..." \
+  -e GRIP_AGENTS__DEFAULTS__ENGINE="claude_sdk" \
+  -e GRIP_AGENTS__DEFAULTS__SDK_MODEL="claude-sonnet-4-6" \
+  -e GRIP_AGENTS__DEFAULTS__MAX_TOKENS=16384 \
+  -e GRIP_AGENTS__DEFAULTS__TEMPERATURE=0.7 \
+  -e GRIP_CHANNELS__TELEGRAM__ENABLED=true \
+  -e GRIP_CHANNELS__TELEGRAM__TOKEN="123456:ABC-DEF..." \
+  -e GRIP_CHANNELS__TELEGRAM__ALLOW_FROM='["12345678"]' \
+  -e GRIP_GATEWAY__HOST="0.0.0.0" \
+  -e GRIP_GATEWAY__PORT=18800 \
+  -e GRIP_GATEWAY__API__AUTH_TOKEN="grip_your_secret_token" \
+  -e GRIP_GATEWAY__API__RATE_LIMIT_PER_MINUTE=60 \
+  -e GRIP_TOOLS__WEB__BRAVE__ENABLED=true \
+  -e GRIP_TOOLS__WEB__BRAVE__API_KEY="BSA..." \
+  -e GRIP_TOOLS__TRUST_MODE="prompt" \
+  -v ~/.grip:/home/grip/.grip \
+  --restart unless-stopped \
+  grip
+```
+
+## Environment File
+
+Create a `.env` file for easier management:
+
+```bash .env
+# Core
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+GRIP_AGENTS__DEFAULTS__ENGINE=claude_sdk
+GRIP_AGENTS__DEFAULTS__SDK_MODEL=claude-sonnet-4-6
+
+# Channels
+GRIP_CHANNELS__TELEGRAM__ENABLED=true
+GRIP_CHANNELS__TELEGRAM__TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+GRIP_CHANNELS__TELEGRAM__ALLOW_FROM=["12345678"]
+
+# Gateway
+GRIP_GATEWAY__HOST=0.0.0.0
+GRIP_GATEWAY__PORT=18800
+GRIP_GATEWAY__API__AUTH_TOKEN=grip_your_secret_token
+
+# Tools
+GRIP_TOOLS__WEB__BRAVE__ENABLED=true
+GRIP_TOOLS__WEB__BRAVE__API_KEY=BSA...
+GRIP_TOOLS__TRUST_MODE=prompt
+```
+
+Then use with Docker:
+
+```bash
+docker run -d --env-file .env -p 18800:18800 -v ~/.grip:/home/grip/.grip grip
+```
+
+## Validation
+
+Verify your environment variable configuration:
+
+```bash
+# Inside container
+docker exec grip-agent grip config show
+
+# Or check specific values
+docker exec grip-agent sh -c 'echo $GRIP_AGENTS__DEFAULTS__MODEL'
+```
+
+## Next Steps
+
+- [Configure Docker deployment](/deployment/docker) with volumes and networking
+- [Review self-hosting guide](/deployment/self-hosting) for production security
+- [Explore configuration options](/configuration/overview) in the full reference

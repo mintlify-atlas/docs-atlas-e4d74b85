@@ -1,0 +1,178 @@
+---
+title: "Web Tools"
+description: "Search the web and fetch page content with Brave and DuckDuckGo support"
+---
+
+## Overview
+
+Web tools enable agents to search the web and retrieve page content. The search tool supports multiple backends with automatic fallback, while the fetch tool extracts readable text from HTML pages.
+
+## Tools
+
+### web_search
+
+Search the web and return a list of results with titles, URLs, and snippets.
+
+<ParamField path="query" type="string" required>
+  Search query
+</ParamField>
+
+<ParamField path="max_results" type="integer">
+  Maximum number of results to return (default 5, max 10)
+</ParamField>
+
+**Example:**
+```python
+result = await web_search(
+    query="Python asyncio best practices",
+    max_results=5
+)
+```
+
+**Returns:** Formatted list of search results:
+```
+Search results for: Python asyncio best practices
+
+1. Asyncio Best Practices Guide
+   https://docs.python.org/3/library/asyncio.html
+   Learn the recommended patterns for writing async Python code...
+
+2. Real Python - Async IO in Python
+   https://realpython.com/async-io-python/
+   A complete guide to asynchronous programming in Python...
+```
+
+---
+
+### Search Backends
+
+#### Brave Search (Primary)
+
+When a Brave API key is configured, the tool uses Brave Search API for fast, ad-free results:
+
+```toml
+[profiles.default]
+brave_api_key = "BSA_xxxxxxxxxxxxxxxxxxxxxxxx"
+```
+
+Get an API key at: https://brave.com/search/api/
+
+#### DuckDuckGo (Fallback)
+
+If Brave is unavailable or fails, the tool automatically falls back to DuckDuckGo HTML scraping. No API key required.
+
+---
+
+### web_fetch
+
+Fetch a URL and extract its main readable text content.
+
+<ParamField path="url" type="string" required>
+  URL to fetch (must start with http:// or https://)
+</ParamField>
+
+**Example:**
+```python
+result = await web_fetch(
+    url="https://github.com/grip/readme"
+)
+```
+
+**Returns:** Extracted text content with HTML tags stripped, truncated at 50,000 characters.
+
+---
+
+## Content Extraction
+
+The `web_fetch` tool uses a minimal HTML-to-text converter that:
+
+1. **Strips script/style tags:** Removes JavaScript, CSS, and other non-readable elements
+2. **Preserves structure:** Adds line breaks for paragraphs, headings, and list items
+3. **Collapses whitespace:** Reduces multiple blank lines to single line breaks
+4. **Skips navigation:** Ignores nav, header, footer elements
+
+**Handled content types:**
+- `text/html` or `application/xhtml`: Extracts readable text
+- `text/*`, `application/json`, `application/xml`: Returns raw content
+- Binary files: Reports file type and size
+
+---
+
+## Configuration
+
+### Timeouts
+
+HTTP requests use the following timeout settings (defined in code):
+
+```python
+FETCH_TIMEOUT = httpx.Timeout(
+    connect=10.0,   # Connection timeout
+    read=30.0,      # Read timeout
+    write=5.0,      # Write timeout
+    pool=5.0        # Pool timeout
+)
+```
+
+### User Agent
+
+All requests use a custom user agent to identify the bot:
+
+```
+grip/0.1 (AI Agent; +https://github.com/grip)
+```
+
+### Redirects
+
+The fetch tool follows up to 5 redirects automatically.
+
+---
+
+## Error Handling
+
+### Search Errors
+
+```python
+result = await web_search(query="test")
+# If both Brave and DuckDuckGo fail:
+# Returns: "Error: Web search failed: [error details]"
+```
+
+### Fetch Errors
+
+**HTTP errors:**
+```python
+result = await web_fetch(url="https://example.com/404")
+# Returns: "Error: HTTP 404 fetching https://example.com/404"
+```
+
+**Timeout errors:**
+```python
+result = await web_fetch(url="https://slow-site.com")
+# Returns: "Error: Timeout fetching https://slow-site.com"
+```
+
+**Invalid URL:**
+```python
+result = await web_fetch(url="not-a-url")
+# Returns: "Error: URL must start with http:// or https://"
+```
+
+---
+
+## Best Practices
+
+1. **Use specific queries** for better search results
+2. **Limit results** to avoid excessive API usage (max 10)
+3. **Check for errors** in returned content before processing
+4. **Prefer Brave** for production (requires API key but more reliable)
+5. **Handle timeouts** gracefully for slow sites
+
+---
+
+## Implementation
+
+Defined in `grip/tools/web.py`. Uses:
+- `httpx.AsyncClient` for async HTTP requests
+- `HTMLParser` subclass for text extraction
+- Regex-based DuckDuckGo result parsing
+- Automatic fallback between search backends

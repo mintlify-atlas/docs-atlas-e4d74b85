@@ -1,0 +1,596 @@
+---
+title: Self-Hosting Guide
+description: Production deployment considerations, security best practices, and network configuration for Grip AI
+---
+
+## Overview
+
+Grip AI is designed for safe self-hosting with built-in security features. This guide covers production deployment best practices, security considerations, and common configurations.
+
+## Security Architecture
+
+Grip implements multiple layers of security:
+
+### 1. Non-Root User
+
+The official Dockerfile creates and runs as a non-root user by default:
+
+```dockerfile
+# User: grip (UID 1000, GID 1000)
+USER grip
+```
+
+This prevents privilege escalation attacks and limits blast radius if the container is compromised.
+
+<Warning>
+Never run Grip as root in production. The container is designed to run as UID 1000.
+</Warning>
+
+### 2. Directory Trust Model
+
+Grip restricts file access by default:
+
+- **Workspace First**: Agent can always access its workspace directory
+- **Explicit Consent**: External directories require explicit trust via `/trust <path>`
+- **Persistent Decisions**: Trust settings saved in `workspace/state/trusted_dirs.json`
+
+Configure trust mode:
+
+```bash
+# Prompt before accessing new directories (default, safest)
+GRIP_TOOLS__TRUST_MODE="prompt"
+
+# Allow any directory the OS user can access (not recommended for production)
+GRIP_TOOLS__TRUST_MODE="trust_all"
+
+# Restrict to workspace only (most restrictive)
+GRIP_TOOLS__TRUST_MODE="workspace_only"
+```
+
+### 3. Shell Command Deny-List
+
+Every shell command is scanned against 50+ dangerous patterns before execution:
+
+- Destructive commands: `rm -rf /`, `mkfs`, `dd if=/dev/zero`
+- System control: `shutdown`, `reboot`, `systemctl poweroff`
+- Credential exfiltration: `cat ~/.ssh/id_rsa`, `cat .env`
+- Remote code injection: `curl | bash`, `wget -O - | sh`
+
+This prevents accidental or malicious system damage.
+
+### 4. Shield Policy (Runtime Threat Feed)
+
+The agent's system prompt includes a `SHIELD.md` policy that evaluates actions against active threats:
+
+- **Scopes**: `prompt`, `skill.install`, `tool.call`, `network.egress`, `secrets.read`, `mcp`
+- **Actions**: `block`, `require_approval`, `log`
+- **Confidence threshold**: >= 0.85 for enforcement
+
+Shield policy is stored at `workspace/SHIELD.md` and can be customized per deployment.
+
+### 5. Credential Scrubbing
+
+Tool outputs are automatically redacted before storage:
+
+- `sk-...` API keys (OpenAI/Anthropic)
+- `ghp_...` GitHub tokens
+- `xoxb-...` Slack tokens
+- `Bearer <token>` headers
+- `password=...` parameters
+
+This prevents credential leakage in logs and session history.
+
+### 6. API Security
+
+The REST API includes multiple security layers:
+
+```bash
+# Bearer token authentication
+GRIP_GATEWAY__API__AUTH_TOKEN="grip_your_secret_token"
+
+# Rate limiting (per-IP and per-token)
+GRIP_GATEWAY__API__RATE_LIMIT_PER_MINUTE=60
+GRIP_GATEWAY__API__RATE_LIMIT_PER_MINUTE_PER_IP=30
+
+# Request size limit (1MB default)
+GRIP_GATEWAY__API__MAX_REQUEST_BODY_BYTES=1048576
+
+# Disable direct tool execution (disabled by default)
+GRIP_GATEWAY__API__ENABLE_TOOL_EXECUTE=false
+```
+
+Security headers are automatically set:
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `Content-Security-Policy: default-src 'self'`
+
+## Production Deployment
+
+### Recommended Docker Configuration
+
+<CodeGroup>
+```yaml docker-compose.yml
+version: '3.8'
+
+services:
+  grip:
+    image: grip:latest
+    container_name: grip-production
+    restart: unless-stopped
+    user: "1000:1000"
+    
+    # Network
+    ports:
+      - "127.0.0.1:18800:18800"
+    
+    # Environment
+    environment:
+      # Engine
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GRIP_AGENTS__DEFAULTS__ENGINE=claude_sdk
+      - GRIP_AGENTS__DEFAULTS__SDK_MODEL=claude-sonnet-4-6
+      
+      # Channels
+      - GRIP_CHANNELS__TELEGRAM__ENABLED=true
+      - GRIP_CHANNELS__TELEGRAM__TOKEN=${TELEGRAM_BOT_TOKEN}
+      - GRIP_CHANNELS__TELEGRAM__ALLOW_FROM=${TELEGRAM_ALLOWED_USERS}
+      
+      # Gateway
+      - GRIP_GATEWAY__HOST=0.0.0.0
+      - GRIP_GATEWAY__PORT=18800
+      - GRIP_GATEWAY__API__AUTH_TOKEN=${API_AUTH_TOKEN}
+      - GRIP_GATEWAY__API__RATE_LIMIT_PER_MINUTE=60
+      - GRIP_GATEWAY__API__RATE_LIMIT_PER_MINUTE_PER_IP=30
+      - GRIP_GATEWAY__API__ENABLE_TOOL_EXECUTE=false
+      
+      # Security
+      - GRIP_TOOLS__TRUST_MODE=prompt
+      - GRIP_TOOLS__SHELL_TIMEOUT=60
+    
+    # Volumes
+    volumes:
+      - grip-data:/home/grip/.grip
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18800/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  grip-data:
+    driver: local
+```
+
+```bash .env
+# API Keys
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+
+# Channels
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+TELEGRAM_ALLOWED_USERS=["12345678"]
+
+# API Security
+API_AUTH_TOKEN=grip_your_very_long_random_secret_token_here
+```
+</CodeGroup>
+
+### Network Configuration
+
+#### Local Access Only
+
+Bind to localhost for local-only access:
+
+```bash
+# Only accessible from the host machine
+GRIP_GATEWAY__HOST="127.0.0.1"
+
+# Or in docker-compose ports
+ports:
+  - "127.0.0.1:18800:18800"
+```
+
+#### External Access with Reverse Proxy
+
+For external access, use a reverse proxy (nginx, Caddy, Traefik) with HTTPS:
+
+<CodeGroup>
+```nginx nginx.conf
+server {
+    listen 443 ssl http2;
+    server_name grip.example.com;
+    
+    ssl_certificate /etc/letsencrypt/live/grip.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/grip.example.com/privkey.pem;
+    
+    # Security headers
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    
+    # Rate limiting
+    limit_req_zone $binary_remote_addr zone=grip_limit:10m rate=10r/s;
+    limit_req zone=grip_limit burst=20 nodelay;
+    
+    location / {
+        proxy_pass http://127.0.0.1:18800;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket support for SSE
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400;
+    }
+}
+```
+
+```caddyfile Caddyfile
+grip.example.com {
+    reverse_proxy localhost:18800
+    
+    # Rate limiting
+    rate_limit {
+        zone grip
+        match {
+            path /api/*
+        }
+        rate 10r/s
+        burst 20
+    }
+    
+    # Security headers (Caddy adds many by default)
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+    }
+}
+```
+</CodeGroup>
+
+<Warning>
+Never expose Grip directly to the internet without a reverse proxy. Always use HTTPS and rate limiting.
+</Warning>
+
+## Resource Management
+
+### Memory Limits
+
+Grip's memory usage scales with session count and context size:
+
+- **Minimum**: 512MB (basic operation)
+- **Recommended**: 1-2GB (production with caching)
+- **Large deployments**: 4GB+ (many concurrent sessions)
+
+```yaml
+deploy:
+  resources:
+    limits:
+      memory: 2G
+    reservations:
+      memory: 1G
+```
+
+### CPU Limits
+
+CPU usage spikes during:
+- LLM API calls (minimal, mostly network I/O)
+- Message consolidation (LLM-based summarization)
+- Tool execution (especially shell commands)
+
+```yaml
+deploy:
+  resources:
+    limits:
+      cpus: '2.0'
+    reservations:
+      cpus: '0.5'
+```
+
+### Disk Space
+
+Monitor these directories:
+
+| Path | Typical Size | Notes |
+|------|-------------|--------|
+| `~/.grip/sessions/` | 10-100MB | Session history (JSON files) |
+| `~/.grip/workspace/` | Varies | Agent workspace files |
+| `~/.grip/logs/` | 50-200MB | Application logs (if enabled) |
+
+Implement log rotation:
+
+```yaml
+logging:
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+```
+
+## Monitoring & Observability
+
+### Health Checks
+
+Grip provides two health endpoints:
+
+```bash
+# Public health check (no auth, for load balancers)
+curl http://localhost:18800/health
+# Response: {"status": "ok"}
+
+# Authenticated health check (with version and uptime)
+curl -H "Authorization: Bearer grip_your_token" \
+  http://localhost:18800/api/v1/health
+# Response: {"status": "ok", "version": "0.1.0", "uptime": 3600}
+```
+
+### Metrics
+
+Query runtime metrics:
+
+```bash
+curl -H "Authorization: Bearer grip_your_token" \
+  http://localhost:18800/api/v1/metrics
+```
+
+Returns:
+- Request counts
+- Token usage
+- Session counts
+- Tool execution stats
+- Error rates
+
+### Logging
+
+Grip logs to stdout/stderr by default. Configure structured logging:
+
+```bash
+# View logs
+docker logs grip-production
+
+# Follow logs
+docker logs -f grip-production
+
+# Filter by level
+docker logs grip-production 2>&1 | grep ERROR
+```
+
+### OpenTelemetry (Optional)
+
+Enable tracing for observability:
+
+```bash
+# Install with observability extra
+uv sync --extra observe
+
+# Configure OTEL endpoint
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+```
+
+## Backup & Recovery
+
+### What to Back Up
+
+```bash
+# Configuration
+~/.grip/config.json
+
+# Session data
+~/.grip/sessions/
+
+# Workspace files
+~/.grip/workspace/
+
+# Trust decisions
+~/.grip/workspace/state/trusted_dirs.json
+
+# Memory & history
+~/.grip/workspace/MEMORY.md
+~/.grip/workspace/HISTORY.md
+```
+
+### Backup Script
+
+```bash backup.sh
+#!/bin/bash
+set -e
+
+BACKUP_DIR="/backups/grip/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+
+# Stop container gracefully
+docker stop grip-production
+
+# Copy data
+sudo cp -r /var/lib/docker/volumes/grip-data/_data "$BACKUP_DIR/"
+
+# Start container
+docker start grip-production
+
+# Compress backup
+tar -czf "$BACKUP_DIR.tar.gz" "$BACKUP_DIR"
+rm -rf "$BACKUP_DIR"
+
+echo "Backup complete: $BACKUP_DIR.tar.gz"
+```
+
+### Restore
+
+```bash
+# Stop container
+docker stop grip-production
+
+# Extract backup
+tar -xzf backup-20260228-120000.tar.gz
+
+# Restore volume
+sudo rm -rf /var/lib/docker/volumes/grip-data/_data
+sudo cp -r backup-20260228-120000/ /var/lib/docker/volumes/grip-data/_data
+
+# Fix permissions
+sudo chown -R 1000:1000 /var/lib/docker/volumes/grip-data/_data
+
+# Start container
+docker start grip-production
+```
+
+## Updates
+
+### Update Strategy
+
+1. **Pull latest image**:
+   ```bash
+   docker pull grip:latest
+   ```
+
+2. **Stop current container**:
+   ```bash
+   docker stop grip-production
+   ```
+
+3. **Backup data** (see Backup & Recovery above)
+
+4. **Start new container**:
+   ```bash
+   docker-compose up -d
+   ```
+
+5. **Verify health**:
+   ```bash
+   docker logs grip-production
+   curl http://localhost:18800/health
+   ```
+
+### Rolling Updates
+
+For zero-downtime updates, run multiple instances behind a load balancer:
+
+```yaml docker-compose.yml
+services:
+  grip-1:
+    # ... config ...
+  grip-2:
+    # ... config ...
+  
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - grip-1
+      - grip-2
+```
+
+Update one instance at a time:
+
+```bash
+docker-compose up -d --no-deps grip-1
+# Wait for health check
+docker-compose up -d --no-deps grip-2
+```
+
+## Troubleshooting
+
+### Container Won't Start
+
+```bash
+# Check logs
+docker logs grip-production
+
+# Verify environment variables
+docker exec grip-production env | grep GRIP_
+
+# Validate config
+docker exec grip-production grip config show
+```
+
+### Permission Errors
+
+```bash
+# Fix volume permissions
+sudo chown -R 1000:1000 ~/.grip
+
+# Or in volume
+sudo chown -R 1000:1000 /var/lib/docker/volumes/grip-data/_data
+```
+
+### API Not Responding
+
+```bash
+# Check if service is listening
+docker exec grip-production netstat -tlnp | grep 18800
+
+# Test health endpoint
+docker exec grip-production curl http://localhost:18800/health
+
+# Check firewall
+sudo ufw status
+sudo iptables -L
+```
+
+### High Memory Usage
+
+```bash
+# Check session count
+curl -H "Authorization: Bearer grip_your_token" \
+  http://localhost:18800/api/v1/sessions | jq 'length'
+
+# Clear old sessions
+docker exec grip-production rm -rf /home/grip/.grip/sessions/*
+
+# Restart container
+docker restart grip-production
+```
+
+## Security Checklist
+
+<Warning>
+Review this checklist before deploying to production:
+</Warning>
+
+- [ ] Running as non-root user (UID 1000)
+- [ ] Strong API auth token generated (`grip_` prefix + 32+ chars)
+- [ ] Rate limiting enabled and configured
+- [ ] Direct tool execution disabled (`ENABLE_TOOL_EXECUTE=false`)
+- [ ] Telegram/Discord/Slack user allowlists configured
+- [ ] Trust mode set to `prompt` or `workspace_only`
+- [ ] HTTPS enabled via reverse proxy
+- [ ] Health checks configured
+- [ ] Resource limits set (CPU, memory)
+- [ ] Log rotation enabled
+- [ ] Backups automated and tested
+- [ ] API not exposed directly to internet
+- [ ] Firewall rules configured
+- [ ] Environment variables stored securely (not in version control)
+
+## Next Steps
+
+- [Configure Docker deployment](/deployment/docker) with volumes and ports
+- [Review environment variables](/deployment/environment-variables) reference
+- [Configure Docker deployment](/deployment/docker) for containerized environments
+- [Explore API endpoints](/api/overview) for integration

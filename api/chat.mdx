@@ -1,0 +1,356 @@
+---
+title: "Chat Endpoint"
+description: "Send messages to the agent with POST /api/v1/chat and stream responses with Server-Sent Events"
+---
+
+## Overview
+
+The chat endpoints allow you to send messages to the Grip AI agent and receive responses. Two modes are supported:
+
+1. **Blocking** - `POST /api/v1/chat` - Wait for the full response
+2. **Streaming** - `POST /api/v1/chat/stream` - Receive Server-Sent Events as the agent responds
+
+Both endpoints support session persistence, model selection, and return usage metrics.
+
+## POST /api/v1/chat
+
+Send a message and wait for the complete response.
+
+### Request
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/chat \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "List all files in the workspace",
+    "session_key": "my-session",
+    "model": "claude-4.5-sonnet"
+  }'
+```
+
+<ParamField path="message" type="string" required>
+  The message to send to the agent. Must be 1-100,000 characters.
+</ParamField>
+
+<ParamField path="session_key" type="string">
+  Optional session identifier for conversation persistence. Must match regex `^[\w:.@-]+$` and be max 128 characters. If omitted, a new session is auto-generated with format `api:<random-12-char-hex>`.
+</ParamField>
+
+<ParamField path="model" type="string">
+  Optional model override. Max 256 characters. Examples: `claude-4.5-sonnet`, `gpt-4`, `anthropic/claude-3-opus`. If omitted, uses the default model from config.
+</ParamField>
+
+### Response
+
+<ResponseField name="response" type="string">
+  The agent's complete response text.
+</ResponseField>
+
+<ResponseField name="iterations" type="integer">
+  Number of tool execution iterations performed.
+</ResponseField>
+
+<ResponseField name="usage" type="object">
+  Token usage statistics.
+  
+  <ResponseField name="prompt_tokens" type="integer">
+    Total prompt tokens consumed.
+  </ResponseField>
+  
+  <ResponseField name="completion_tokens" type="integer">
+    Total completion tokens generated.
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="tool_calls_made" type="array">
+  List of tool names that were called during execution. Example: `["bash", "read", "write"]`.
+</ResponseField>
+
+<ResponseField name="session_key" type="string">
+  The session key for this conversation (either provided or auto-generated).
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "response": "Here are the files in the workspace:\n\n- src/main.py\n- src/utils.py\n- README.md\n- config.json",
+  "iterations": 2,
+  "usage": {
+    "prompt_tokens": 1523,
+    "completion_tokens": 342
+  },
+  "tool_calls_made": ["bash"],
+  "session_key": "my-session"
+}
+```
+
+### Error Responses
+
+**400 Bad Request** - Invalid parameters:
+
+```json
+{
+  "detail": "session_key must match ^[\\w:.@-]+$"
+}
+```
+
+**401 Unauthorized** - Missing or invalid Bearer token:
+
+```json
+{
+  "detail": "Authentication required"
+}
+```
+
+**502 Bad Gateway** - Agent execution failed:
+
+```json
+{
+  "detail": "Agent execution failed"
+}
+```
+
+## POST /api/v1/chat/stream
+
+Send a message and stream the response using Server-Sent Events (SSE).
+
+### Request
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/chat/stream \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Analyze this codebase",
+    "session_key": "stream-session"
+  }'
+```
+
+Request body parameters are identical to the blocking endpoint.
+
+### Response Stream
+
+The response is a stream of Server-Sent Events with the following event types:
+
+#### `start` Event
+
+Emitted first with the session key:
+
+```
+event: start
+data: {"session_key": "stream-session"}
+
+```
+
+#### `message` Event
+
+Emitted when the agent has a response:
+
+```
+event: message
+data: {"text": "I've analyzed the codebase and found 23 Python files..."}
+
+```
+
+#### `done` Event
+
+Emitted last with usage metrics:
+
+```
+event: done
+data: {"iterations": 3, "usage": {"prompt_tokens": 2341, "completion_tokens": 567}, "tool_calls_made": ["glob", "read", "grep"]}
+
+```
+
+#### `error` Event
+
+Emitted if agent execution fails:
+
+```
+event: error
+data: {"detail": "Agent execution failed"}
+
+```
+
+### Python Client Example
+
+```python
+import httpx
+import json
+
+url = "http://127.0.0.1:8080/api/v1/chat/stream"
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Content-Type": "application/json"
+}
+payload = {
+    "message": "What's the current weather?",
+    "session_key": "weather-session"
+}
+
+with httpx.stream("POST", url, headers=headers, json=payload) as response:
+    for line in response.iter_lines():
+        if line.startswith("event: "):
+            event_type = line[7:]
+        elif line.startswith("data: "):
+            data = json.loads(line[6:])
+            print(f"{event_type}: {data}")
+```
+
+### JavaScript Client Example
+
+```javascript
+const response = await fetch('http://127.0.0.1:8080/api/v1/chat/stream', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    message: 'Summarize this document',
+    session_key: 'doc-session'
+  })
+});
+
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  
+  const chunk = decoder.decode(value);
+  const lines = chunk.split('\n');
+  
+  for (const line of lines) {
+    if (line.startsWith('event: ')) {
+      const event = line.slice(7);
+      console.log('Event:', event);
+    } else if (line.startsWith('data: ')) {
+      const data = JSON.parse(line.slice(6));
+      console.log('Data:', data);
+    }
+  }
+}
+```
+
+## Session Management
+
+### Auto-Generated Sessions
+
+If `session_key` is omitted, a new session is created with format:
+
+```
+api:<12-hex-chars>
+```
+
+Example: `api:a3f9c2e8b1d4`
+
+### Custom Session Keys
+
+Provide a custom session key for conversation persistence:
+
+```json
+{
+  "message": "Continue from our previous conversation",
+  "session_key": "user:alice:project-planning"
+}
+```
+
+**Validation rules:**
+- Must match regex: `^[\w:.@-]+$`
+- Max length: 128 characters
+- Allowed characters: alphanumeric, underscore, colon, period, @, hyphen
+
+### Session Persistence
+
+Sessions are stored in `<workspace>/sessions/<session_key>.json` and include:
+- Full conversation history
+- Message count
+- Creation and update timestamps
+
+Use the [Sessions API](/api/sessions) to list, view, and delete sessions.
+
+## Model Selection
+
+### Default Model
+
+If `model` is omitted, the default model from config is used:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": "claude-4.5-sonnet"
+    }
+  }
+}
+```
+
+### Per-Request Override
+
+Specify a different model for individual requests:
+
+```json
+{
+  "message": "This requires advanced reasoning",
+  "model": "anthropic/claude-4.5-sonnet"
+}
+```
+
+Supported formats depend on your LLM provider configuration.
+
+## Rate Limiting
+
+Both chat endpoints are subject to:
+- **Per-IP rate limit** (before auth): 60 requests/min
+- **Per-token rate limit** (after auth): 60 requests/min
+
+When rate limited, you'll receive:
+
+```json
+{
+  "detail": "Rate limit exceeded"
+}
+```
+
+Headers:
+```
+Retry-After: 45
+X-RateLimit-Remaining: 0
+```
+
+See [Overview - Rate Limits](/api/overview#rate-limits) for configuration.
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use streaming for long-running tasks">
+    The streaming endpoint provides immediate feedback and allows you to show progress to users while the agent is working.
+  </Accordion>
+  
+  <Accordion title="Reuse session keys for conversations">
+    Store the session key from the first request and include it in subsequent requests to maintain conversation context.
+  </Accordion>
+  
+  <Accordion title="Monitor token usage">
+    Track `prompt_tokens` and `completion_tokens` to estimate costs and optimize prompts.
+  </Accordion>
+  
+  <Accordion title="Set appropriate timeouts">
+    Agent execution can take time, especially with multiple tool iterations. Set client timeouts to 60+ seconds.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Sessions API" icon="folder" href="/api/sessions">
+    List, view, and delete conversation sessions
+  </Card>
+  <Card title="Tools API" icon="wrench" href="/api/tools">
+    See which tools the agent can call
+  </Card>
+</CardGroup>

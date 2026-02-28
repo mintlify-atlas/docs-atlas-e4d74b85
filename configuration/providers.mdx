@@ -1,0 +1,468 @@
+---
+title: Provider Configuration
+description: Configure API keys and connection details for LLM providers
+---
+
+Grip supports 15+ LLM providers with unified configuration. Each provider entry contains API keys, base URLs, and default models.
+
+## Configuration Structure
+
+```json
+{
+  "providers": {
+    "provider_name": {
+      "api_key": "your-api-key",
+      "api_base": "https://api.example.com/v1",
+      "default_model": "model-name"
+    }
+  }
+}
+```
+
+<ParamField path="providers.{name}.api_key" type="SecretStr" required>
+  API key for this provider. Stored securely and never logged.
+  
+  Can be set via environment variable: `GRIP_PROVIDERS__{NAME}__API_KEY`
+</ParamField>
+
+<ParamField path="providers.{name}.api_base" type="string" default="">
+  Custom API base URL. Leave empty to use the provider's default endpoint.
+</ParamField>
+
+<ParamField path="providers.{name}.default_model" type="string" default="">
+  Default model when using this provider. Optional.
+</ParamField>
+
+## Supported Providers
+
+### Cloud Providers
+
+<AccordionGroup>
+  <Accordion title="OpenRouter" icon="router">
+    **Best for**: Access to 100+ models from multiple providers
+    
+    <ParamField path="providers.openrouter.api_key" type="string" required>
+      OpenRouter API key from https://openrouter.ai/keys
+    </ParamField>
+    
+    ```bash
+    # Set via CLI
+    grip config set providers.openrouter.api_key "sk-or-..."
+    
+    # Or environment variable
+    export OPENROUTER_API_KEY="sk-or-..."
+    ```
+    
+    **Popular models**:
+    - `openrouter/anthropic/claude-opus-4.6`
+    - `openrouter/anthropic/claude-sonnet-4.6`
+    - `openrouter/openai/gpt-5.2`
+    - `openrouter/google/gemini-2.5-pro`
+    - `openrouter/x-ai/grok-4.1-fast`
+    
+    **Default API base**: `https://openrouter.ai/api/v1`
+  </Accordion>
+  
+  <Accordion title="Anthropic" icon="brain">
+    **Best for**: Claude models directly from Anthropic
+    
+    <ParamField path="providers.anthropic.api_key" type="string" required>
+      Anthropic API key from https://console.anthropic.com/
+    </ParamField>
+    
+    ```bash
+    grip config set providers.anthropic.api_key "sk-ant-..."
+    
+    # Or environment variable
+    export ANTHROPIC_API_KEY="sk-ant-..."
+    ```
+    
+    **Available models**:
+    - `anthropic/claude-sonnet-4-20250514`
+    - `anthropic/claude-haiku-4-5-20251001`
+    - `anthropic/claude-opus-4-6` (via OpenRouter)
+    
+    **Default API base**: `https://api.anthropic.com/v1`
+  </Accordion>
+  
+  <Accordion title="OpenAI" icon="openai">
+    **Best for**: GPT models and o1 reasoning models
+    
+    <ParamField path="providers.openai.api_key" type="string" required>
+      OpenAI API key from https://platform.openai.com/api-keys
+    </ParamField>
+    
+    ```bash
+    grip config set providers.openai.api_key "sk-proj-..."
+    
+    export OPENAI_API_KEY="sk-proj-..."
+    ```
+    
+    **Available models**:
+    - `openai/gpt-4o`
+    - `openai/gpt-4o-mini`
+    - `openai/o1`
+    
+    **Default API base**: `https://api.openai.com/v1`
+  </Accordion>
+  
+  <Accordion title="DeepSeek" icon="magnifying-glass">
+    **Best for**: Cost-effective reasoning models
+    
+    <ParamField path="providers.deepseek.api_key" type="string" required>
+      DeepSeek API key from https://platform.deepseek.com/
+    </ParamField>
+    
+    ```bash
+    grip config set providers.deepseek.api_key "sk-..."
+    
+    export DEEPSEEK_API_KEY="sk-..."
+    ```
+    
+    **Available models**:
+    - `deepseek/deepseek-chat`
+    - `deepseek/deepseek-reasoner`
+    
+    **Default API base**: `https://api.deepseek.com/v1`
+  </Accordion>
+  
+  <Accordion title="Groq" icon="bolt">
+    **Best for**: Ultra-fast inference with LPU acceleration
+    
+    <ParamField path="providers.groq.api_key" type="string" required>
+      Groq API key from https://console.groq.com/
+    </ParamField>
+    
+    ```bash
+    grip config set providers.groq.api_key "gsk_..."
+    
+    export GROQ_API_KEY="gsk_..."
+    ```
+    
+    **Available models**:
+    - `groq/llama-3.3-70b-versatile`
+    - `groq/mixtral-8x7b-32768`
+    
+    **Default API base**: `https://api.groq.com/openai/v1`
+  </Accordion>
+  
+  <Accordion title="Google Gemini" icon="google">
+    **Best for**: Multimodal models with large context windows
+    
+    <ParamField path="providers.gemini.api_key" type="string" required>
+      Google AI Studio API key from https://aistudio.google.com/
+    </ParamField>
+    
+    ```bash
+    grip config set providers.gemini.api_key "AIza..."
+    
+    export GEMINI_API_KEY="AIza..."
+    ```
+    
+    **Available models**:
+    - `gemini/gemini-2.5-pro`
+    - `gemini/gemini-2.5-flash`
+    
+    **Default API base**: `https://generativelanguage.googleapis.com/v1beta/openai`
+  </Accordion>
+  
+  <Accordion title="Qwen (DashScope)" icon="alibaba">
+    **Best for**: Chinese language tasks and Alibaba Cloud integration
+    
+    <ParamField path="providers.qwen.api_key" type="string" required>
+      DashScope API key from https://dashscope.console.aliyun.com/
+    </ParamField>
+    
+    ```bash
+    grip config set providers.qwen.api_key "sk-..."
+    
+    export DASHSCOPE_API_KEY="sk-..."
+    ```
+    
+    **Available models**:
+    - `qwen/qwen-max`
+    - `qwen/qwen-turbo`
+    
+    **Default API base**: `https://dashscope.aliyuncs.com/compatible-mode/v1`
+  </Accordion>
+  
+  <Accordion title="MiniMax" icon="minimize">
+    **Best for**: Chinese language models
+    
+    <ParamField path="providers.minimax.api_key" type="string" required>
+      MiniMax API key from https://api.minimax.chat/
+    </ParamField>
+    
+    ```bash
+    grip config set providers.minimax.api_key "..."
+    
+    export MINIMAX_API_KEY="..."
+    ```
+    
+    **Available models**:
+    - `minimax/abab6.5s-chat`
+    
+    **Default API base**: `https://api.minimax.chat/v1`
+  </Accordion>
+  
+  <Accordion title="Moonshot / Kimi" icon="moon">
+    **Best for**: Long-context Chinese language models
+    
+    <ParamField path="providers.moonshot.api_key" type="string" required>
+      Moonshot API key from https://platform.moonshot.cn/
+    </ParamField>
+    
+    ```bash
+    grip config set providers.moonshot.api_key "sk-..."
+    
+    export MOONSHOT_API_KEY="sk-..."
+    ```
+    
+    **Available models**:
+    - `moonshot/moonshot-v1-128k`
+    
+    **Default API base**: `https://api.moonshot.cn/v1`
+  </Accordion>
+  
+  <Accordion title="Ollama (Cloud)" icon="cloud">
+    **Best for**: Cloud-hosted Ollama models
+    
+    <ParamField path="providers.ollama_cloud.api_key" type="string" required>
+      Ollama API key from https://ollama.com/
+    </ParamField>
+    
+    ```bash
+    grip config set providers.ollama_cloud.api_key "..."
+    
+    export OLLAMA_API_KEY="..."
+    ```
+    
+    **Available models**:
+    - `ollama_cloud/llama3.3`
+    - `ollama_cloud/qwen2.5`
+    - `ollama_cloud/deepseek-r1`
+    - `ollama_cloud/mistral`
+    
+    **Default API base**: `https://ollama.com/v1`
+  </Accordion>
+</AccordionGroup>
+
+### Local Providers
+
+<AccordionGroup>
+  <Accordion title="Ollama (Local)" icon="server">
+    **Best for**: Privacy-focused local inference
+    
+    No API key required. Connects to local Ollama instance.
+    
+    ```bash
+    # Start Ollama
+    ollama serve
+    
+    # Pull a model
+    ollama pull llama3.2
+    
+    # Configure Grip to use local Ollama
+    grip config set agents.defaults.model "ollama/llama3.2"
+    ```
+    
+    **Available models**: Any model installed via `ollama pull`
+    
+    **Default API base**: `http://localhost:11434/v1`
+  </Accordion>
+  
+  <Accordion title="Llama.cpp (Local)" icon="microchip">
+    **Best for**: CPU/GPU inference without dependencies
+    
+    ```bash
+    # Start llama.cpp server
+    ./llama-server -m model.gguf --port 8080
+    
+    # Configure custom API base
+    grip config set providers.llamacpp.api_base "http://localhost:8080/v1"
+    ```
+    
+    **Default API base**: `http://localhost:8080/v1`
+  </Accordion>
+  
+  <Accordion title="LM Studio (Local)" icon="desktop">
+    **Best for**: GUI-based local model management
+    
+    No API key required. Connects to LM Studio's local server.
+    
+    ```bash
+    # Default LM Studio endpoint
+    grip config set providers.lmstudio.api_base "http://localhost:1234/v1"
+    ```
+    
+    **Default API base**: `http://localhost:1234/v1`
+  </Accordion>
+</AccordionGroup>
+
+## Setting API Keys
+
+### Via CLI (Recommended)
+
+```bash
+# Interactive config editor
+grip config
+
+# Set specific key
+grip config set providers.anthropic.api_key "sk-ant-..."
+```
+
+### Via Environment Variables
+
+```bash
+# Provider-specific env vars (preferred)
+export ANTHROPIC_API_KEY="sk-ant-..."
+export OPENAI_API_KEY="sk-proj-..."
+export OPENROUTER_API_KEY="sk-or-..."
+
+# Or GRIP-prefixed vars
+export GRIP_PROVIDERS__ANTHROPIC__API_KEY="sk-ant-..."
+```
+
+### Via Config File
+
+Edit `~/.grip/config.json`:
+
+```json
+{
+  "providers": {
+    "anthropic": {
+      "api_key": "sk-ant-..."
+    },
+    "openai": {
+      "api_key": "sk-proj-..."
+    }
+  }
+}
+```
+
+<Warning>
+API keys in `config.json` are stored as plain text. Use environment variables or system keychain for production deployments.
+</Warning>
+
+## Custom Providers (OpenAI-Compatible)
+
+Grip supports any OpenAI-compatible API:
+
+```json
+{
+  "providers": {
+    "custom": {
+      "api_key": "your-key",
+      "api_base": "https://your-api.example.com/v1",
+      "default_model": "your-model-name"
+    }
+  }
+}
+```
+
+```bash
+# Use custom provider
+grip chat --model "custom/your-model-name"
+```
+
+## Provider Detection
+
+Grip uses two methods to detect providers:
+
+1. **Prefix-based**: `anthropic/claude-sonnet-4` → Anthropic provider
+2. **Explicit**: `--provider openrouter` or `agents.defaults.provider`
+
+### Overriding Detection
+
+Use explicit provider when model names are ambiguous:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": "openai/gpt-oss-120b",
+      "provider": "openrouter"
+    }
+  }
+}
+```
+
+This ensures `openai/gpt-oss-120b` routes through OpenRouter instead of OpenAI.
+
+## SecretStr Fields
+
+API keys use Pydantic's `SecretStr` type for security:
+
+- Never logged or printed
+- Masked in error messages
+- Scrubbed from tool outputs
+- Serialized as plain text in config.json
+
+<Note>
+The `SecretStr` type provides runtime protection, but keys are stored unencrypted in `config.json`. For production, use environment variables or a secrets manager.
+</Note>
+
+## Testing Provider Configuration
+
+```bash
+# Test a specific provider
+grip chat --model "anthropic/claude-sonnet-4" --message "Hello"
+
+# Check provider detection
+grip config get agents.defaults.model
+grip config get agents.defaults.provider
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Security">
+    - Use environment variables for API keys in CI/CD
+    - Never commit `config.json` with API keys to version control
+    - Rotate keys regularly
+    - Use separate keys for development and production
+  </Accordion>
+  
+  <Accordion title="Cost Optimization">
+    - Use OpenRouter for access to multiple providers with one key
+    - Set cheaper models in `model_tiers.low` for simple tasks
+    - Use local providers (Ollama) for development
+    - Monitor usage via provider dashboards
+  </Accordion>
+  
+  <Accordion title="Reliability">
+    - Configure fallback providers in `model_tiers`
+    - Use OpenRouter for automatic failover
+    - Set `api_base` for self-hosted deployments
+    - Test provider connectivity before deployment
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Authentication Errors">
+    ```bash
+    # Verify API key is set
+    grip config get providers.anthropic.api_key
+    
+    # Check environment variables
+    echo $ANTHROPIC_API_KEY
+    
+    # Test with explicit key
+    ANTHROPIC_API_KEY="sk-ant-..." grip chat --model "anthropic/claude-sonnet-4"
+    ```
+  </Accordion>
+  
+  <Accordion title="Provider Not Found">
+    - Verify provider name matches supported providers
+    - Check model prefix (e.g., `anthropic/` not `claude/`)
+    - Use explicit `--provider` flag to override detection
+  </Accordion>
+  
+  <Accordion title="Rate Limiting">
+    - Switch to a different provider temporarily
+    - Use OpenRouter for automatic rate limit handling
+    - Configure `max_daily_tokens` to control usage
+  </Accordion>
+</AccordionGroup>

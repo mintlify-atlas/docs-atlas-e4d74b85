@@ -1,0 +1,240 @@
+---
+title: Task Tracking
+description: Plan and track multi-step work with persistent todo lists that survive across agent iterations
+---
+
+## Overview
+
+Grip AI's task tracking system provides agents with the ability to plan, track, and manage complex multi-step workflows. Tasks are persisted to `workspace/tasks.json` and automatically injected into the agent's system prompt, ensuring the agent never loses track of what needs to be done.
+
+## Core Tools
+
+The task tracking feature exposes two primary tools:
+
+### todo_write
+
+Replaces the entire task list with a new set of todos. Each call performs a full replacement — you must include all tasks, not just new ones.
+
+<CodeGroup>
+```json Tool Schema
+{
+  "todos": [
+    {
+      "id": "task-1",
+      "content": "Analyze codebase structure",
+      "status": "completed",
+      "priority": "high"
+    },
+    {
+      "id": "task-2",
+      "content": "Implement authentication flow",
+      "status": "in_progress",
+      "priority": "high"
+    },
+    {
+      "id": "task-3",
+      "content": "Write integration tests",
+      "status": "pending",
+      "priority": "medium"
+    }
+  ]
+}
+```
+
+```python Implementation
+# From grip/tools/todo.py:88
+async def execute(self, params: dict[str, Any], ctx: ToolContext) -> str:
+    todos = params.get("todos", [])
+    
+    # Validate statuses and priorities
+    for t in todos:
+        if t.get("status") not in VALID_STATUSES:
+            return f"Error: Invalid status '{t.get('status')}'..."
+    
+    # Persist to workspace/tasks.json
+    tasks_path = ctx.workspace_path / "tasks.json"
+    tasks_path.write_text(json.dumps(todos, indent=2))
+    
+    # Return summary
+    completed = sum(1 for t in todos if t["status"] == "completed")
+    in_progress = sum(1 for t in todos if t["status"] == "in_progress")
+    pending = sum(1 for t in todos if t["status"] == "pending")
+    
+    return (
+        f"Task list updated: {len(todos)} total "
+        f"({pending} pending, {in_progress} in_progress, {completed} completed)."
+    )
+```
+</CodeGroup>
+
+**Valid Statuses:**
+- `pending` — Not yet started
+- `in_progress` — Currently being worked on
+- `completed` — Finished
+- `cancelled` — Abandoned or skipped
+
+**Valid Priorities:**
+- `low`
+- `medium`
+- `high`
+
+### todo_read
+
+Reads the current task list from `workspace/tasks.json` and returns all todos with their statuses and priorities.
+
+<CodeGroup>
+```python Example Output
+# From grip/tools/todo.py:161-176
+Task list (3 total):
+
+  ● [task-1] [high] Analyze codebase structure — completed
+  ◑ [task-2] [high] Implement authentication flow — in_progress
+  ○ [task-3] [medium] Write integration tests — pending
+
+Summary: 1 pending, 1 in_progress, 1 completed.
+```
+
+```python Status Icons
+# From grip/tools/todo.py:20-25
+STATUS_ICONS = {
+    "pending": "○",
+    "in_progress": "◑",
+    "completed": "●",
+    "cancelled": "✗",
+}
+```
+</CodeGroup>
+
+## Workspace Persistence
+
+Tasks are stored in `workspace/tasks.json` as a simple JSON array:
+
+```json workspace/tasks.json
+[
+  {
+    "id": "1",
+    "content": "Research existing metrics tracking",
+    "status": "completed",
+    "priority": "high"
+  },
+  {
+    "id": "2",
+    "content": "Design metrics collection system",
+    "status": "in_progress"
+  },
+  {
+    "id": "3",
+    "content": "Implement core tracking functionality",
+    "status": "pending",
+    "priority": "medium"
+  }
+]
+```
+
+<Note>
+The tasks file survives across agent iterations, allowing agents to resume work after interruptions or timeouts.
+</Note>
+
+## System Prompt Injection
+
+Active tasks (pending or in_progress) are automatically injected into the agent's system prompt on every iteration:
+
+```python
+# From grip/agent/context.py:189-219
+def _build_todos_section(self) -> str:
+    """Read workspace/tasks.json and inject active (pending/in_progress) todos.
+    
+    Returns empty string when no tasks file exists or all tasks are done.
+    This is NOT cached — tasks change during a run and must be fresh each call.
+    """
+    tasks_path = self._workspace.root / "tasks.json"
+    if not tasks_path.exists():
+        return ""
+    
+    todos = json.loads(tasks_path.read_text())
+    active = [t for t in todos if t.get("status") in ("pending", "in_progress")]
+    
+    if not active:
+        return ""
+    
+    status_icons = {"pending": "○", "in_progress": "◑"}
+    lines = [f"## Active Tasks ({len(active)} remaining)\n"]
+    for t in active:
+        icon = status_icons.get(t.get("status", "pending"), "○")
+        priority = t.get("priority", "")
+        priority_label = f" [{priority}]" if priority else ""
+        lines.append(
+            f"{icon} [{t['id']}]{priority_label} {t['content']} — {t.get('status')}"
+        )
+    lines.append("\nUpdate tasks via todo_write as you progress through them.")
+    return "\n".join(lines)
+```
+
+This ensures the agent always has context about what work remains and can update progress as it goes.
+
+## Best Practices
+
+<Accordion title="When to Use Task Tracking">
+Use task tracking for:
+- Multi-step features requiring 3+ sequential operations
+- Long-running refactoring work that might span multiple sessions
+- Complex debugging that requires systematic investigation
+- Workflows where order and dependencies matter
+
+Skip task tracking for:
+- Simple one-step operations
+- Exploratory queries
+- Quick fixes or patches
+</Accordion>
+
+<Accordion title="Task Organization Tips">
+1. **Use short, descriptive IDs**: `task-1`, `auth-flow`, `test-suite`
+2. **Set priorities strategically**: Focus on high-priority items first
+3. **Mark in_progress before starting**: This signals active work to the agent
+4. **Complete tasks promptly**: Update status as soon as work finishes
+5. **Cancel abandoned work**: Use `cancelled` status instead of deleting tasks
+</Accordion>
+
+<Accordion title="Error Handling">
+The `todo_write` tool validates all inputs:
+
+```python
+# Invalid status
+{"error": "Invalid status 'done' for todo 'task-1'. Must be one of: cancelled, completed, in_progress, pending."}
+
+# Invalid priority
+{"error": "Invalid priority 'critical' for todo 'task-2'. Must be one of: high, low, medium."}
+
+# Missing required fields
+{"error": "Todo missing required field: 'content'"}
+```
+</Accordion>
+
+## Integration with Workflows
+
+Task tracking works seamlessly with [workflows](/features/workflows). Each workflow step can maintain its own task list:
+
+```json
+{
+  "name": "feature-implementation",
+  "steps": [
+    {
+      "name": "planning",
+      "prompt": "Break down the feature into tasks using todo_write",
+      "profile": "planner"
+    },
+    {
+      "name": "implementation",
+      "prompt": "Implement tasks from {{planning.output}}",
+      "depends_on": ["planning"],
+      "profile": "developer"
+    }
+  ]
+}
+```
+
+## Related Features
+
+- [Workflows](/features/workflows) — Multi-agent orchestration with DAG-based execution
+- [Skills](/features/skills) — Specialized knowledge modules
+- [Scheduling](/features/scheduling) — Automated periodic task execution

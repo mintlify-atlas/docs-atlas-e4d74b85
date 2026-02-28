@@ -1,0 +1,221 @@
+---
+title: "Subagent Spawning"
+description: "Create background subagents for parallel and long-running tasks"
+---
+
+## Overview
+
+Spawn tools enable agents to create background subagents that run independently with their own message history. Subagents share the same LLM provider and tool registry but have isolated context. Results are reported back via the message tool.
+
+## Tools
+
+### spawn
+
+Spawn a background subagent for a task. Use for long-running or parallel work.
+
+<ParamField path="task" type="string" required>
+  Description of the task for the subagent to perform
+</ParamField>
+
+<ParamField path="context" type="string">
+  Additional context or instructions for the subagent
+</ParamField>
+
+**Example:**
+```python
+result = await spawn(
+    task="Analyze error logs from the last 24 hours",
+    context="Focus on critical errors and provide recommendations"
+)
+```
+
+**Returns:**
+```
+Subagent spawned: sub_a3f8b2c1
+Task: Analyze error logs from the last 24 hours
+Status: running
+The subagent will report results via send_message when done.
+```
+
+---
+
+### check_subagent
+
+Check the status and result of a previously spawned subagent by its ID.
+
+<ParamField path="agent_id" type="string" required>
+  ID of the subagent to check
+</ParamField>
+
+**Example:**
+```python
+result = await check_subagent(agent_id="sub_a3f8b2c1")
+```
+
+**Returns:**
+```
+ID: sub_a3f8b2c1
+Task: Analyze error logs from the last 24 hours
+Status: completed
+Result: Found 12 critical errors in auth service. Top issues:
+1. Database timeout (5 occurrences)
+2. Invalid JWT signature (4 occurrences)
+3. Rate limit exceeded (3 occurrences)
+Recommendations: ...
+```
+
+**Possible statuses:**
+- `running` — Subagent is actively working
+- `completed` — Task finished successfully
+- `failed` — Task failed with an error
+- `cancelled` — Task was cancelled manually
+
+---
+
+### list_subagents
+
+List all spawned subagents with their IDs, statuses, and task descriptions.
+
+**Example:**
+```python
+result = await list_subagents()
+```
+
+**Returns:**
+```
+- sub_a3f8b2c1 [completed]: Analyze error logs from the last 24 hours
+- sub_7f2e9d4a [running]: Generate monthly sales report
+- sub_1c5b8e3f [failed]: Fetch external API data (timeout)
+```
+
+---
+
+## Lifecycle Management
+
+### Subagent Creation
+
+When `spawn()` is called:
+1. A unique ID is generated (`sub_[8-char-hex]`)
+2. The task is wrapped in an asyncio task with error handling
+3. The subagent executes using the spawn callback provided in `ToolContext`
+4. The task runs in the background while the main agent continues
+
+### Result Reporting
+
+Subagents should use `send_message` to report results:
+
+```python
+# Inside subagent execution
+await send_message(text="Analysis complete: found 12 errors")
+```
+
+The message is sent to the same session/channel that spawned the subagent.
+
+### Cleanup
+
+Completed/failed/cancelled subagents are automatically pruned when the count exceeds 50 to prevent unbounded memory growth. The oldest finished tasks are evicted first.
+
+---
+
+## Use Cases
+
+### Parallel Processing
+
+```python
+# Spawn multiple subagents to work in parallel
+await spawn(task="Analyze server logs")
+await spawn(task="Generate performance report")
+await spawn(task="Run security audit")
+
+# All three subagents run concurrently
+# Each will send_message when done
+```
+
+### Long-Running Tasks
+
+```python
+# Main agent spawns a subagent for a slow operation
+await spawn(
+    task="Download and process large dataset",
+    context="Dataset URL: https://data.example.com/export.csv"
+)
+
+# Main agent can continue handling user requests
+# Subagent will report when download completes
+```
+
+### Background Monitoring
+
+```python
+# Spawn a subagent to monitor a process
+await spawn(
+    task="Monitor build status and notify when complete",
+    context="Check every 30 seconds, timeout after 1 hour"
+)
+
+# Main agent returns immediately
+# Subagent runs in background until build finishes
+```
+
+---
+
+## Error Handling
+
+### Spawn Unavailable
+
+```python
+result = await spawn(task="Test task")
+# If spawn_callback is not configured:
+# Returns: "Error: Subagent spawning is not available in this mode. Try running the task directly instead."
+```
+
+### Subagent Failure
+
+```python
+result = await check_subagent(agent_id="sub_abc123")
+# If subagent failed:
+# Returns:
+# ID: sub_abc123
+# Task: Fetch external API
+# Status: failed
+# Result: Error: Connection timeout after 30s
+```
+
+### Invalid Agent ID
+
+```python
+result = await check_subagent(agent_id="nonexistent")
+# Returns: "No subagent found with ID 'nonexistent'. Use list_subagents to see all."
+```
+
+---
+
+## Best Practices
+
+1. **Use spawn for tasks that take longer than 30 seconds** to avoid blocking the main agent
+2. **Provide clear task descriptions** — they're visible to the LLM during execution
+3. **Add context for complex tasks** to give the subagent necessary information
+4. **Have subagents send_message with results** instead of relying on check_subagent polling
+5. **List subagents periodically** to track overall progress when running many parallel tasks
+6. **Don't spawn subagents for simple tasks** — adds overhead
+
+---
+
+## Limitations
+
+- **No direct communication** between subagents (use send_message to user and have main agent coordinate)
+- **No cancellation API** in current version (subagents run until completion or failure)
+- **No resource limits** per subagent (can consume unlimited workspace resources)
+- **No priority system** (all subagents run with equal priority)
+- **Memory pruning** means old completed tasks are deleted (no infinite history)
+
+---
+
+## Implementation
+
+Defined in `grip/tools/spawn.py`. Uses:
+- `SubagentManager` to track all spawned agents
+- `asyncio.create_task()` for background execution
+- `uuid.uuid4()` for unique ID generation
+- Automatic status tracking (running → completed/failed/cancelled)
+- LRU-style pruning of completed agents (keeps last 50)

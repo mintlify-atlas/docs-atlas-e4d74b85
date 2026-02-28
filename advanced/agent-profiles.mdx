@@ -1,0 +1,325 @@
+---
+title: Agent Profiles
+description: Create specialized agent configurations with custom models, tool restrictions, and system prompts
+---
+
+Agent profiles let you configure specialized agents for different tasks. Each profile can override the default model, restrict available tools, and use a custom system prompt.
+
+## Profile Configuration
+
+Profiles are defined in `~/.grip/config.json` under the `agents.profiles` section:
+
+```json
+{
+  "agents": {
+    "profiles": {
+      "researcher": {
+        "model": "openrouter/google/gemini-flash-2.0",
+        "temperature": 0.9,
+        "max_tokens": 4096,
+        "tools_allowed": ["web_search", "web_fetch", "read_file", "write_file"],
+        "system_prompt_file": "agents/researcher.md"
+      },
+      "coder": {
+        "model": "anthropic/claude-sonnet-4",
+        "temperature": 0.3,
+        "tools_denied": ["web_search", "send_email"],
+        "system_prompt_file": "agents/coder.md"
+      },
+      "safe-assistant": {
+        "tools_allowed": ["read_file", "web_search"],
+        "tools_denied": ["exec", "shell", "delete_file"]
+      }
+    }
+  }
+}
+```
+
+## Profile Schema
+
+From `grip/config/schema.py:369`:
+
+```python
+class AgentProfile(BaseModel):
+    """Named agent profile with its own model, tool subset, and system prompt.
+    
+    Profiles let you configure specialized agents (e.g. a "researcher" that
+    uses a cheaper model with only web tools, or a "coder" with shell access).
+    Fields left empty inherit from agents.defaults at runtime.
+    """
+    
+    model: str = ""
+    max_tokens: int = 0
+    temperature: float = -1.0
+    max_tool_iterations: int = 0
+    tools_allowed: list[str] = Field(
+        default_factory=list,
+        description="Tool names this profile can use. Empty = all tools.",
+    )
+    tools_denied: list[str] = Field(
+        default_factory=list,
+        description="Tool names explicitly blocked for this profile.",
+    )
+    system_prompt_file: str = Field(
+        default="",
+        description="Workspace-relative path to a custom identity file (e.g. 'agents/researcher.md').",
+    )
+```
+
+## Tool Access Control
+
+### Allowlist Mode
+
+Use `tools_allowed` to restrict the agent to only specific tools:
+
+```json
+{
+  "readonly-analyst": {
+    "tools_allowed": [
+      "read_file",
+      "list_directory",
+      "web_search",
+      "web_fetch"
+    ]
+  }
+}
+```
+
+<Tip>
+When `tools_allowed` is set, the agent can **only** use those tools. All other tools are blocked, including built-in tools like `write_file` or `exec`.
+</Tip>
+
+### Denylist Mode
+
+Use `tools_denied` to block specific dangerous tools while allowing everything else:
+
+```json
+{
+  "safe-coder": {
+    "tools_denied": [
+      "exec",
+      "shell",
+      "delete_file",
+      "delete_directory"
+    ]
+  }
+}
+```
+
+### Combined Mode
+
+You can combine both for fine-grained control:
+
+```json
+{
+  "web-scraper": {
+    "tools_allowed": [
+      "web_search",
+      "web_fetch",
+      "read_file",
+      "write_file",
+      "exec"
+    ],
+    "tools_denied": ["exec"]
+  }
+}
+```
+
+<Info>
+When both are set, `tools_denied` takes precedence. In the example above, `exec` is blocked even though it appears in `tools_allowed`.
+</Info>
+
+## Custom System Prompts
+
+Create a custom identity file in your workspace to specialize agent behavior:
+
+```bash
+mkdir -p ~/.grip/workspace/agents
+cat > ~/.grip/workspace/agents/researcher.md << 'EOF'
+# Research Assistant
+
+You are a specialized research agent focused on gathering and synthesizing information from web sources.
+
+## Principles
+
+- Always verify information from multiple sources
+- Cite sources with URLs
+- Distinguish between facts and opinions
+- Flag outdated information (>1 year old)
+- Use academic and authoritative sources when possible
+
+## Workflow
+
+1. Break down research questions into searchable queries
+2. Search using web_search with targeted keywords
+3. Fetch and analyze top 3-5 results with web_fetch
+4. Synthesize findings into a structured summary
+5. Include a "Sources" section with all URLs referenced
+
+## Output Format
+
+Always structure research findings as:
+
+**Summary**: 2-3 sentence overview
+
+**Key Findings**:
+- Finding 1 (Source: URL)
+- Finding 2 (Source: URL)
+
+**Details**: Expanded context and analysis
+
+**Sources**: Full list of URLs consulted
+EOF
+```
+
+Then reference it in your profile:
+
+```json
+{
+  "researcher": {
+    "system_prompt_file": "agents/researcher.md"
+  }
+}
+```
+
+<Tip>
+System prompt files are workspace-relative paths. Use `agents/name.md` for organization, or store directly as `researcher.md` in the workspace root.
+</Tip>
+
+## Inheritance from Defaults
+
+Profile fields left empty inherit from `agents.defaults`:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": "openrouter/anthropic/claude-sonnet-4",
+      "max_tokens": 8192,
+      "temperature": 0.7
+    },
+    "profiles": {
+      "fast-coder": {
+        "temperature": 0.3
+        // Inherits model and max_tokens from defaults
+      }
+    }
+  }
+}
+```
+
+## Using Profiles
+
+Profiles are activated through the API or gateway:
+
+```bash
+# Via REST API
+curl -X POST http://localhost:18800/api/v1/agent/run \
+  -H "Authorization: Bearer $GRIP_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Research quantum computing trends",
+    "profile": "researcher"
+  }'
+
+# Via Python SDK
+from grip import GripClient
+
+client = GripClient()
+result = await client.run(
+    "Research quantum computing trends",
+    profile="researcher"
+)
+```
+
+## Example Profiles
+
+### Budget-Conscious Researcher
+
+Uses a cheaper model with web-only tools:
+
+```json
+{
+  "budget-researcher": {
+    "model": "openrouter/google/gemini-flash-2.0",
+    "max_tokens": 4096,
+    "temperature": 0.8,
+    "tools_allowed": ["web_search", "web_fetch", "read_file", "write_file"]
+  }
+}
+```
+
+### Code Review Specialist
+
+Focused on code analysis, blocks shell execution:
+
+```json
+{
+  "code-reviewer": {
+    "model": "anthropic/claude-sonnet-4",
+    "temperature": 0.2,
+    "tools_denied": ["exec", "shell", "delete_file", "web_search"],
+    "system_prompt_file": "agents/code-reviewer.md"
+  }
+}
+```
+
+### Data Analyst
+
+Restricted to read-only operations with analysis tools:
+
+```json
+{
+  "analyst": {
+    "tools_allowed": [
+      "read_file",
+      "list_directory",
+      "analyze_csv",
+      "generate_chart",
+      "web_search"
+    ],
+    "max_tool_iterations": 20,
+    "system_prompt_file": "agents/analyst.md"
+  }
+}
+```
+
+## Tool Names Reference
+
+Common tool names for `tools_allowed` / `tools_denied`:
+
+**Filesystem**: `read_file`, `write_file`, `edit_file`, `append_file`, `list_directory`, `delete_file`, `delete_directory`
+
+**Shell**: `exec`, `shell`
+
+**Web**: `web_search`, `web_fetch`
+
+**Communication**: `send_message`, `send_email`
+
+**Orchestration**: `spawn_agent`, `send_to_agent`
+
+**Finance**: `get_stock_price`, `get_crypto_price`, `analyze_portfolio`
+
+**Code**: `analyze_code`, `review_code`, `generate_docs`
+
+**Data**: `transform_csv`, `generate_chart`, `analyze_dataset`
+
+<Info>
+To see all available tools, run `grip tools list` or check `~/.grip/workspace/TOOLS.md` after initialization.
+</Info>
+
+## Best Practices
+
+1. **Name profiles descriptively**: Use names like `web-researcher` or `safe-coder` that clearly indicate purpose
+
+2. **Start restrictive**: Begin with `tools_allowed` for security-critical profiles, then add tools as needed
+
+3. **Match model to task**:
+   - Use cheaper models (Gemini Flash, GPT-4o-mini) for simple research or data lookup
+   - Use premium models (Claude Opus, GPT-4) for complex reasoning or code generation
+
+4. **Custom prompts for specialization**: Define workflows, output formats, and quality standards in `system_prompt_file`
+
+5. **Test tool restrictions**: Verify that denied tools are actually blocked before deploying profiles
+
+6. **Document profiles**: Add comments in config.json explaining each profile's purpose

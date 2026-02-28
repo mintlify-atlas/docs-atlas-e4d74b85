@@ -1,0 +1,477 @@
+---
+title: Tool Configuration
+description: Configure web search, shell execution, workspace sandboxing, and MCP servers
+---
+
+The `tools` section controls how Grip's built-in tools behave and which external tools (MCP servers) are available.
+
+## Web Search Configuration
+
+Grip supports multiple web search backends. Configure which providers are enabled and their API keys.
+
+### Brave Search
+
+<ParamField path="tools.web.brave.enabled" type="boolean" default="false">
+  Enable Brave Search API.
+</ParamField>
+
+<ParamField path="tools.web.brave.api_key" type="SecretStr" required>
+  Brave Search API key from https://brave.com/search/api/
+</ParamField>
+
+<ParamField path="tools.web.brave.max_results" type="integer" default="5" min="1" max="20">
+  Maximum search results to return.
+</ParamField>
+
+```bash
+# Enable Brave Search
+grip config set tools.web.brave.enabled true
+grip config set tools.web.brave.api_key "BSA..."
+```
+
+### DuckDuckGo
+
+<ParamField path="tools.web.duckduckgo.enabled" type="boolean" default="true">
+  Enable DuckDuckGo search (no API key required).
+</ParamField>
+
+<ParamField path="tools.web.duckduckgo.max_results" type="integer" default="5" min="1" max="20">
+  Maximum search results to return.
+</ParamField>
+
+DuckDuckGo is enabled by default and requires no configuration.
+
+### Perplexity
+
+<ParamField path="tools.web.perplexity.enabled" type="boolean" default="false">
+  Enable Perplexity API for search.
+</ParamField>
+
+<ParamField path="tools.web.perplexity.api_key" type="SecretStr" required>
+  Perplexity API key from https://www.perplexity.ai/
+</ParamField>
+
+<ParamField path="tools.web.perplexity.max_results" type="integer" default="5" min="1" max="20">
+  Maximum search results to return.
+</ParamField>
+
+### Example Configuration
+
+```json
+{
+  "tools": {
+    "web": {
+      "brave": {
+        "enabled": true,
+        "api_key": "BSA...",
+        "max_results": 5
+      },
+      "duckduckgo": {
+        "enabled": true,
+        "max_results": 5
+      },
+      "perplexity": {
+        "enabled": false
+      }
+    }
+  }
+}
+```
+
+## Shell Execution
+
+<ParamField path="tools.shell_timeout" type="integer" default="60" min="1" max="600">
+  Default timeout in seconds for shell commands.
+  
+  Commands that exceed this timeout are automatically terminated.
+</ParamField>
+
+```bash
+# Set shell timeout to 2 minutes
+grip config set tools.shell_timeout 120
+
+# Or via environment variable
+export GRIP_TOOLS__SHELL_TIMEOUT=120
+```
+
+### Shell Safety
+
+Grip implements multiple layers of shell command safety:
+
+1. **Blocked commands**: `mkfs`, `shutdown`, `reboot`, `halt`, `poweroff`
+2. **Dangerous rm detection**: Prevents `rm -rf /`, `rm -rf ~`, etc.
+3. **Interpreter -c escape detection**: Blocks `python -c`, `bash -c` with suspicious code
+4. **Regex deny-list**: Fork bombs, credential access, device writes, remote code execution
+
+<Warning>
+Shell deny patterns provide defense-in-depth but are not a security boundary. Always run Grip in a sandboxed environment for untrusted workloads.
+</Warning>
+
+## Workspace Sandboxing
+
+<ParamField path="tools.restrict_to_workspace" type="boolean" default="false">
+  When true, file tools are sandboxed to the workspace directory.
+  
+  When false, file tools can read/write anywhere the OS user has permissions (subject to trust checks).
+</ParamField>
+
+<ParamField path="tools.trust_mode" type="string" default="prompt">
+  Directory trust mode for file access outside workspace.
+  
+  - `prompt` - Ask before accessing new directories (default)
+  - `trust_all` - Access any directory without prompting
+  - `workspace_only` - Same as `restrict_to_workspace=true`
+</ParamField>
+
+### Trust Modes Explained
+
+<AccordionGroup>
+  <Accordion title="prompt (Recommended)">
+    The agent asks permission before accessing directories outside the workspace for the first time.
+    
+    ```
+    Agent wants to access: /Users/alice/Downloads
+    Trust this directory? [y/N]
+    ```
+    
+    Trusted directories are saved to `~/.grip/workspace/state/trusted_dirs.json`.
+    
+    **Best for**: Interactive development where you want control over file access.
+  </Accordion>
+  
+  <Accordion title="trust_all">
+    The agent can access any directory the OS user has permissions for, without prompting.
+    
+    **Best for**: Automation, CI/CD, trusted environments.
+    
+    <Warning>
+    This mode allows the agent to read/write any file. Only use in trusted environments.
+    </Warning>
+  </Accordion>
+  
+  <Accordion title="workspace_only">
+    The agent can only access files inside the workspace directory.
+    
+    **Best for**: Maximum security, untrusted code execution, shared environments.
+    
+    <Note>
+    Some operations (like installing packages or running builds) may fail if they need to access files outside the workspace.
+    </Note>
+  </Accordion>
+</AccordionGroup>
+
+### Example Configuration
+
+```json
+{
+  "tools": {
+    "restrict_to_workspace": false,
+    "trust_mode": "prompt"
+  }
+}
+```
+
+```bash
+# Set trust mode
+grip config set tools.trust_mode "trust_all"
+
+# Enable workspace sandboxing
+grip config set tools.restrict_to_workspace true
+```
+
+## MCP Servers
+
+Model Context Protocol (MCP) servers extend Grip with external tools. Configure servers via `tools.mcp_servers`.
+
+<ParamField path="tools.mcp_servers.{name}.command" type="string" required>
+  Command to execute for stdio-based MCP servers.
+  
+  Example: `npx`, `python`, `/usr/local/bin/my-mcp-server`
+</ParamField>
+
+<ParamField path="tools.mcp_servers.{name}.args" type="array" default="[]">
+  Arguments to pass to the command.
+  
+  Example: `["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]`
+</ParamField>
+
+<ParamField path="tools.mcp_servers.{name}.env" type="object" default="{}">
+  Environment variables to set for the server process.
+  
+  Example: `{"API_KEY": "secret"}`
+</ParamField>
+
+<ParamField path="tools.mcp_servers.{name}.url" type="string">
+  URL for HTTP/SSE-based MCP servers.
+  
+  Example: `http://localhost:3000/mcp`
+</ParamField>
+
+<ParamField path="tools.mcp_servers.{name}.headers" type="object" default="{}">
+  HTTP headers for HTTP-based servers.
+  
+  Example: `{"Authorization": "Bearer token"}`
+</ParamField>
+
+<ParamField path="tools.mcp_servers.{name}.type" type="string" default="">
+  Transport type: `http`, `sse`, or empty for stdio (auto-detected).
+</ParamField>
+
+<ParamField path="tools.mcp_servers.{name}.timeout" type="integer" default="60" min="1" max="600">
+  Connection timeout in seconds for this server.
+</ParamField>
+
+<ParamField path="tools.mcp_servers.{name}.enabled" type="boolean" default="true">
+  When false, server is skipped without deleting config.
+</ParamField>
+
+<ParamField path="tools.mcp_servers.{name}.allowed_tools" type="array" default="[]">
+  Tool permission patterns with wildcard support.
+  
+  - Empty list = all tools allowed
+  - Example: `["mcp__filesystem__*", "mcp__filesystem__read"]`
+</ParamField>
+
+### OAuth Configuration
+
+For MCP servers requiring browser-based OAuth login:
+
+<ParamField path="tools.mcp_servers.{name}.oauth.client_id" type="string" required>
+  OAuth 2.0 client ID.
+</ParamField>
+
+<ParamField path="tools.mcp_servers.{name}.oauth.auth_url" type="string" required>
+  OAuth 2.0 authorization endpoint URL.
+</ParamField>
+
+<ParamField path="tools.mcp_servers.{name}.oauth.token_url" type="string" required>
+  OAuth 2.0 token exchange endpoint URL.
+</ParamField>
+
+<ParamField path="tools.mcp_servers.{name}.oauth.scopes" type="array" default="[]">
+  OAuth scopes to request.
+  
+  Example: `["read:files", "write:files"]`
+</ParamField>
+
+<ParamField path="tools.mcp_servers.{name}.oauth.redirect_port" type="integer" default="18801" min="1024" max="65535">
+  Local port for OAuth callback server.
+</ParamField>
+
+### Example Configurations
+
+#### Stdio-based Server
+
+```json
+{
+  "tools": {
+    "mcp_servers": {
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+        "enabled": true,
+        "timeout": 60
+      }
+    }
+  }
+}
+```
+
+#### HTTP-based Server
+
+```json
+{
+  "tools": {
+    "mcp_servers": {
+      "api_service": {
+        "url": "http://localhost:3000/mcp",
+        "type": "http",
+        "headers": {
+          "Authorization": "Bearer my-token"
+        },
+        "timeout": 30
+      }
+    }
+  }
+}
+```
+
+#### Server with OAuth
+
+```json
+{
+  "tools": {
+    "mcp_servers": {
+      "github": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "oauth": {
+          "client_id": "your-github-app-id",
+          "auth_url": "https://github.com/login/oauth/authorize",
+          "token_url": "https://github.com/login/oauth/access_token",
+          "scopes": ["repo", "read:user"]
+        }
+      }
+    }
+  }
+}
+```
+
+#### Tool Permissions
+
+```json
+{
+  "tools": {
+    "mcp_servers": {
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+        "allowed_tools": [
+          "mcp__filesystem__read_file",
+          "mcp__filesystem__list_directory"
+        ]
+      }
+    }
+  }
+}
+```
+
+### Loading MCP Servers from .mcp.json
+
+Grip automatically loads MCP servers from `.mcp.json` files in the workspace directory (following Claude Agent SDK convention):
+
+```json
+// ~/.grip/workspace/.mcp.json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    }
+  }
+}
+```
+
+Servers in `config.json` take precedence over `.mcp.json`.
+
+## Tool Search
+
+<ParamField path="tools.enable_tool_search" type="string" default="auto">
+  MCP tool search behavior when tool count is high.
+  
+  - `auto` - Activate when tools exceed 10% of context window
+  - `auto:N` - Custom threshold (e.g., `auto:5` for 5%)
+  - `true` - Always use tool search
+  - `false` - Disable tool search
+</ParamField>
+
+Tool search optimizes token usage when many MCP tools are available by using semantic search to find relevant tools instead of sending all tool definitions to the LLM.
+
+```bash
+# Set custom threshold
+grip config set tools.enable_tool_search "auto:5"
+
+# Always enable
+grip config set tools.enable_tool_search "true"
+
+# Disable
+grip config set tools.enable_tool_search "false"
+```
+
+## Managing MCP Servers via CLI
+
+```bash
+# List configured servers
+grip mcp list
+
+# Add a new server
+grip mcp add filesystem --command npx --args "-y" "@modelcontextprotocol/server-filesystem" "/tmp"
+
+# Remove a server
+grip mcp remove filesystem
+
+# Disable a server (keeps config)
+grip config set tools.mcp_servers.filesystem.enabled false
+
+# Test server connection
+grip mcp test filesystem
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Web Search">
+    - Start with DuckDuckGo (free, no setup)
+    - Add Brave Search for higher quality results
+    - Use Perplexity for AI-powered search summaries
+    - Set `max_results` based on context window size
+  </Accordion>
+  
+  <Accordion title="Shell Safety">
+    - Set appropriate `shell_timeout` for long-running builds
+    - Use `trust_mode=workspace_only` for untrusted environments
+    - Review shell deny patterns regularly
+    - Monitor shell tool usage in production
+  </Accordion>
+  
+  <Accordion title="MCP Servers">
+    - Use `allowed_tools` to limit server permissions
+    - Set `enabled=false` instead of deleting config
+    - Test servers with `grip mcp test` before deployment
+    - Use OAuth for servers requiring authentication
+    - Keep server commands in `$PATH` or use absolute paths
+  </Accordion>
+  
+  <Accordion title="Workspace Sandboxing">
+    - Use `trust_mode=prompt` for development
+    - Use `trust_mode=workspace_only` for CI/CD
+    - Review `~/.grip/workspace/state/trusted_dirs.json` regularly
+    - Combine with MCP `allowed_tools` for defense-in-depth
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="MCP Server Connection Failures">
+    ```bash
+    # Check server logs
+    grip mcp test server_name --verbose
+    
+    # Verify command is in PATH
+    which npx
+    
+    # Test command directly
+    npx -y @modelcontextprotocol/server-filesystem /tmp
+    
+    # Check timeout settings
+    grip config get tools.mcp_servers.server_name.timeout
+    ```
+  </Accordion>
+  
+  <Accordion title="Shell Command Denied">
+    Check if the command matches a deny pattern:
+    - Blocked commands: `mkfs`, `shutdown`, `reboot`
+    - Dangerous rm targets: `/`, `~`, `/home`, `/etc`
+    - Interpreter escapes: `python -c`, `bash -c`
+    - Fork bombs, credential access, device writes
+    
+    If the command is safe, you may need to adjust the deny patterns in `grip/tools/shell.py`.
+  </Accordion>
+  
+  <Accordion title="File Access Denied">
+    ```bash
+    # Check trust mode
+    grip config get tools.trust_mode
+    
+    # List trusted directories
+    cat ~/.grip/workspace/state/trusted_dirs.json
+    
+    # Manually trust a directory
+    grip trust /path/to/directory
+    
+    # Or set trust_all mode
+    grip config set tools.trust_mode "trust_all"
+    ```
+  </Accordion>
+</AccordionGroup>

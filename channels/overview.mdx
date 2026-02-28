@@ -1,0 +1,180 @@
+---
+title: Multi-Channel Architecture
+description: Learn how Grip AI's channel system enables communication through Telegram, Discord, and Slack
+---
+
+Grip AI uses a flexible multi-channel architecture that allows the AI agent to communicate through multiple chat platforms simultaneously. The system is built around a decoupled message bus that separates message producers (chat channels) from consumers (the agent gateway).
+
+## Architecture Overview
+
+The channel system consists of three main components:
+
+### 1. Chat Channels
+
+Each chat platform (Telegram, Discord, Slack) implements the `BaseChannel` interface defined in `channels/base.py`. Channels:
+
+- Receive messages from their platform
+- Wrap them as `InboundMessage` objects
+- Push them onto the `MessageBus`
+- Subscribe to `OutboundMessage` to deliver agent replies back to users
+
+### 2. Message Bus
+
+The `MessageBus` (defined in `bus/queue.py`) provides async message passing between components:
+
+**Inbound Queue**: Channels push incoming user messages here. The gateway pops messages, processes them through the agent, and generates responses.
+
+**Outbound Pub/Sub**: The gateway publishes agent responses, and all subscribed channels receive them. Each channel filters for messages targeting their platform.
+
+### 3. Channel Manager
+
+The `ChannelManager` (in `channels/manager.py`) handles the lifecycle of all enabled channels:
+
+- Loads channel configurations on startup
+- Instantiates and starts enabled channels
+- Gracefully stops all channels on shutdown
+- Provides lookup for active channels
+
+## Message Flow
+
+```
+User → Chat Platform → Channel → InboundMessage → MessageBus
+                                                       ↓
+                                                   Gateway
+                                                       ↓
+                                                   Agent Loop
+                                                       ↓
+User ← Chat Platform ← Channel ← OutboundMessage ← MessageBus
+```
+
+<Steps>
+
+### Step 1: User sends message
+
+User sends a message through Telegram, Discord, or Slack.
+
+### Step 2: Channel receives message
+
+The platform-specific channel implementation receives the message via webhook or WebSocket.
+
+### Step 3: Message pushed to bus
+
+Channel wraps the message as an `InboundMessage` with:
+- `channel`: Platform identifier ("telegram", "discord", "slack")
+- `chat_id`: Unique chat/channel identifier
+- `user_id`: User identifier for allowlist checks
+- `text`: Message content
+- `metadata`: Platform-specific data (message IDs, timestamps, etc.)
+
+### Step 4: Gateway processes message
+
+Gateway pops the message from the bus, checks session state, and forwards to the agent loop.
+
+### Step 5: Agent generates response
+
+The AI agent processes the message and generates a response.
+
+### Step 6: Response published
+
+Gateway publishes an `OutboundMessage` to the bus with:
+- `channel`: Target platform
+- `chat_id`: Destination chat
+- `text`: Response text (supports Markdown)
+- `file_path`: Optional file attachment
+
+### Step 7: Channel delivers response
+
+The matching channel receives the outbound message and sends it to the user via the platform's API.
+
+</Steps>
+
+## Message Types
+
+### InboundMessage
+
+```python
+@dataclass(frozen=True)
+class InboundMessage:
+    channel: str      # "telegram", "discord", "slack"
+    chat_id: str      # Platform-specific chat identifier
+    user_id: str      # User identifier for allowlist
+    text: str         # Message content
+    metadata: dict    # Platform-specific data
+    timestamp: datetime
+```
+
+### OutboundMessage
+
+```python
+@dataclass(frozen=True)
+class OutboundMessage:
+    channel: str              # Target platform
+    chat_id: str              # Destination chat
+    text: str                 # Response text (Markdown)
+    metadata: dict            # Optional metadata
+    reply_to_message_id: str  # Optional reply target
+    file_path: str            # Optional file attachment
+```
+
+When `file_path` is set, channels send the file as an attachment (photo for images, document for other files) with `text` as the caption.
+
+## User Allowlists
+
+All channels support optional user allowlists for access control:
+
+```yaml
+channels:
+  telegram:
+    enabled: true
+    token: "YOUR_BOT_TOKEN"
+    allow_from:
+      - "123456789"  # Only this user can interact
+      - "987654321"
+```
+
+If `allow_from` is empty or omitted, all users are allowed. Otherwise, only listed user IDs can send messages.
+
+## Message Splitting
+
+Channels automatically split long responses to fit platform limits:
+
+- **Telegram**: 4,096 characters
+- **Discord**: 2,000 characters  
+- **Slack**: 40,000 characters
+
+The `BaseChannel.split_message()` method intelligently splits on newline boundaries when possible, falling back to hard splits only when necessary.
+
+## File Attachments
+
+All channels support sending files via the `send_file()` method:
+
+**Telegram**: Automatically detects image extensions (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`) and sends as photos. Other files sent as documents.
+
+**Discord**: Uses `discord.File` attachments with optional caption.
+
+**Slack**: Uses `files_upload_v2` API (fallback to `files_upload` for older SDK versions).
+
+## Available Channels
+
+<CardGroup cols={3}>
+  <Card title="Telegram" icon="telegram" href="/channels/telegram">
+    Full bot with rich commands and media support
+  </Card>
+  <Card title="Discord" icon="discord" href="/channels/discord">
+    Discord bot with command prefix support
+  </Card>
+  <Card title="Slack" icon="slack" href="/channels/slack">
+    Socket Mode bot (no public URL required)
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Set up Telegram" icon="paper-plane" href="/channels/telegram">
+    Create a Telegram bot and configure it with Grip AI
+  </Card>
+  <Card title="Set up Discord" icon="message" href="/channels/discord">
+    Configure a Discord bot for your server
+  </Card>
+</CardGroup>

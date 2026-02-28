@@ -1,0 +1,251 @@
+---
+title: "Authentication"
+description: "Bearer token authentication, token generation, and request header configuration"
+---
+
+## Overview
+
+The Grip AI REST API uses Bearer token authentication. All endpoints except `/health` and OAuth callbacks require a valid token in the `Authorization` header.
+
+Tokens are auto-generated on first startup if not configured and use timing-safe comparison to prevent timing attacks.
+
+## Token Generation
+
+### Auto-Generation on First Run
+
+When the API server starts without a configured `auth_token`, a new token is automatically generated with the format:
+
+```
+grip_<43-character-random-string>
+```
+
+The token is:
+1. **Printed once to stderr** (save it immediately)
+2. **Persisted to `~/.grip/config.json`** for future startups
+3. **Never shown again** (check config.json if lost)
+
+Example startup output:
+
+```bash
+$ grip serve
+
+  AUTH TOKEN (save this — shown only once):
+  grip_AbCdEfGhIjKlMnOpQrStUvWxYz1234567890-_AbCdEf
+
+INFO: API server started on 127.0.0.1:8080
+```
+
+<Warning>
+Save the auto-generated token immediately. It's only displayed once on stderr. If lost, check `~/.grip/config.json` or generate a new one manually.
+</Warning>
+
+### Manual Token Configuration
+
+Set a custom token in `config.json`:
+
+```json
+{
+  "gateway": {
+    "api": {
+      "auth_token": "your-secret-token-here"
+    }
+  }
+}
+```
+
+Generate a secure token manually:
+
+```bash
+# Using openssl
+openssl rand -base64 32
+
+# Using Python
+python3 -c "import secrets; print('grip_' + secrets.token_urlsafe(32))"
+```
+
+<Tip>
+Use the `grip_` prefix for consistency, though any string is accepted.
+</Tip>
+
+## Using the Token
+
+### Authorization Header
+
+Include the token in the `Authorization` header with the `Bearer` scheme:
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/chat \
+  -H "Authorization: Bearer grip_AbCdEfGhIjKlMnOpQrStUvWxYz1234567890-_AbCdEf" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello"}'
+```
+
+### Environment Variable
+
+Store the token in an environment variable:
+
+```bash
+export GRIP_API_TOKEN="grip_AbCdEfGhIjKlMnOpQrStUvWxYz1234567890-_AbCdEf"
+
+curl -X POST http://127.0.0.1:8080/api/v1/chat \
+  -H "Authorization: Bearer $GRIP_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What time is it?"}'
+```
+
+### Python Client Example
+
+```python
+import os
+import httpx
+
+token = os.environ["GRIP_API_TOKEN"]
+base_url = "http://127.0.0.1:8080"
+
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Content-Type": "application/json"
+}
+
+with httpx.Client(base_url=base_url, headers=headers) as client:
+    response = client.post("/api/v1/chat", json={
+        "message": "List files in the workspace"
+    })
+    print(response.json())
+```
+
+### JavaScript/TypeScript Client Example
+
+```typescript
+const GRIP_API_TOKEN = process.env.GRIP_API_TOKEN;
+const BASE_URL = 'http://127.0.0.1:8080';
+
+const headers = {
+  'Authorization': `Bearer ${GRIP_API_TOKEN}`,
+  'Content-Type': 'application/json'
+};
+
+const response = await fetch(`${BASE_URL}/api/v1/chat`, {
+  method: 'POST',
+  headers,
+  body: JSON.stringify({
+    message: 'Analyze this repository'
+  })
+});
+
+const data = await response.json();
+console.log(data);
+```
+
+## Authentication Errors
+
+### Missing Token
+
+Request without `Authorization` header:
+
+```bash
+curl http://127.0.0.1:8080/api/v1/chat
+```
+
+Response (401 Unauthorized):
+
+```json
+{
+  "detail": "Authentication required"
+}
+```
+
+Headers:
+```
+WWW-Authenticate: Bearer
+```
+
+### Invalid Token
+
+Request with incorrect token:
+
+```bash
+curl -X GET http://127.0.0.1:8080/api/v1/sessions \
+  -H "Authorization: Bearer wrong-token"
+```
+
+Response (401 Unauthorized):
+
+```json
+{
+  "detail": "Authentication required"
+}
+```
+
+<Note>
+The error message is intentionally generic to avoid leaking authentication details.
+</Note>
+
+### Malformed Header
+
+Incorrect Bearer scheme:
+
+```bash
+# Missing "Bearer" prefix
+curl -H "Authorization: grip_abc123" ...
+
+# Wrong case
+curl -H "Authorization: bearer grip_abc123" ...
+```
+
+Both return 401 with `"detail": "Authentication required"`.
+
+## Token Security
+
+### Timing-Safe Comparison
+
+All token comparisons use `secrets.compare_digest()` to prevent timing attacks. This ensures the comparison time is constant regardless of where the tokens differ.
+
+### Token Storage
+
+The token is stored in `~/.grip/config.json` with restrictive file permissions (0600) where supported:
+
+```bash
+$ ls -la ~/.grip/config.json
+-rw------- 1 user user 1234 Feb 28 10:00 /home/user/.grip/config.json
+```
+
+### Token Rotation
+
+To rotate the token:
+
+1. **Generate a new token** (see Manual Token Configuration)
+2. **Update `config.json`** with the new token
+3. **Restart the API server**: `grip serve` or restart the container
+4. **Update all clients** with the new token
+
+<Warning>
+Changing the token invalidates all existing client credentials. Update all API clients before rotating.
+</Warning>
+
+## Rate Limiting
+
+Authenticated requests are subject to per-token rate limiting (default: 60 requests/minute).
+
+See [Overview - Rate Limits](/api/overview#rate-limits) for details.
+
+## OAuth Endpoints
+
+The OAuth callback endpoint is **public** (no Bearer auth required) because the OAuth provider redirects the user's browser:
+
+- `GET /api/v1/mcp/callback` - No authentication required
+
+All other MCP OAuth endpoints require Bearer auth.
+
+See [MCP Authentication](/api/mcp) for details.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Chat Endpoint" icon="comments" href="/api/chat">
+    Send authenticated messages to the agent
+  </Card>
+  <Card title="Sessions" icon="folder" href="/api/sessions">
+    Manage conversation sessions
+  </Card>
+</CardGroup>

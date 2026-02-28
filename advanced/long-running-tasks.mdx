@@ -1,0 +1,439 @@
+---
+title: Long-Running Tasks
+description: Handle unlimited iterations, mid-run compaction, and persistent task execution
+---
+
+Grip AI supports long-running agent tasks that may require dozens or hundreds of tool iterations, with automatic memory management to prevent context overflow.
+
+## Unlimited Iterations
+
+### Configuration
+
+From `grip/config/schema.py:76`:
+
+```python
+max_tool_iterations: int = Field(
+    default=0,
+    ge=0,
+    description="Maximum LLM-tool round-trips before the agent stops. 0 = unlimited (default).",
+)
+```
+
+Set in `~/.grip/config.json`:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "max_tool_iterations": 0
+    }
+  }
+}
+```
+
+<Tip>
+`max_tool_iterations: 0` means **unlimited** iterations. The agent continues working until the task is complete or it decides to stop.
+</Tip>
+
+### How It Works
+
+Each iteration consists of:
+
+1. **Agent reasoning**: LLM analyzes the current state and decides next action
+2. **Tool execution**: One or more tools are called (e.g., `read_file`, `exec`, `web_search`)
+3. **Result processing**: Tool outputs are fed back to the LLM
+4. **Repeat**: Process continues until agent returns a final text response
+
+**Example: Complex build-fix loop**
+
+```
+Iteration 1: read_file("src/main.py")  
+Iteration 2: exec("pytest tests/") → 5 failures
+Iteration 3: read_file("tests/test_auth.py")
+Iteration 4: edit_file("src/auth.py") → fix bug 1
+Iteration 5: exec("pytest tests/test_auth.py") → 2 failures
+Iteration 6: read_file("src/models.py")
+Iteration 7: edit_file("src/models.py") → fix bug 2
+Iteration 8: exec("pytest tests/") → all pass
+Iteration 9: Final response: "All tests passing. Fixed authentication and model validation bugs."
+```
+
+This task required 9 iterations. With `max_tool_iterations: 5`, it would have stopped prematurely.
+
+### When to Use Unlimited Iterations
+
+**Good use cases**:
+- **Build/test/fix cycles**: Iterate until all tests pass
+- **Multi-file refactoring**: Touch dozens of files in a complex codebase
+- **Research tasks**: Search, fetch, analyze, synthesize across many sources
+- **Data processing**: ETL pipelines with validation and retry logic
+- **System debugging**: Trace through logs, config, code to find root cause
+
+**Not recommended for**:
+- **User-facing chatbots**: Can lead to long response times
+- **Tight budget constraints**: Each iteration costs tokens
+- **Untrusted tasks**: Risk of infinite loops in edge cases
+
+## Mid-Run Compaction
+
+### The Problem
+
+Long tasks generate large conversation histories:
+
+```
+Iteration 1: Read file (500 tokens)
+Iteration 2: Run tests (2000 tokens of output)
+Iteration 3: Read test file (800 tokens)
+Iteration 4: Fix code (200 tokens)
+...
+Iteration 50: Total context = 80,000 tokens (exceeds model limit)
+```
+
+At some point, the context window fills up and the agent loses early context.
+
+### Automatic Consolidation
+
+From `grip/config/schema.py:87`:
+
+```python
+auto_consolidate: bool = Field(
+    default=True,
+    description="Automatically consolidate old messages when session exceeds 2x memory_window.",
+)
+```
+
+**How it works**:
+
+1. Agent tracks message count per session
+2. When `len(messages) > 2 × memory_window`, consolidation triggers
+3. Old messages (beyond `memory_window`) are summarized using `consolidation_model`
+4. Summary replaces old messages, freeing context space
+5. Agent continues with fresh context
+
+**Example** (with `memory_window: 50`):
+
+```
+Messages before consolidation: 120  
+Trigger threshold: 100 (2 × 50)
+
+Step 1: Take messages 0-70 (oldest 70 messages)
+Step 2: Send to consolidation_model: "Summarize this conversation"
+Step 3: Replace messages 0-70 with summary (1 message, ~300 tokens)
+Step 4: Keep messages 71-120 (recent 50 messages) intact
+
+New message count: 51 (1 summary + 50 recent)
+Context freed: ~30,000 tokens
+```
+
+<Info>
+From `grip/engines/litellm_engine.py:138`, consolidation is triggered automatically during `run()` when `auto_consolidate: true`.
+</Info>
+
+### Manual Consolidation
+
+Force compaction mid-run:
+
+```bash
+# Interactive CLI
+grip agent
+> /compact
+
+# Via Python
+from grip.engines import create_engine
+
+engine = create_engine(config, workspace, session_mgr, memory_mgr)
+await engine.consolidate_session("my-session-key")
+```
+
+### Consolidation Model Selection
+
+Use a cheap model for summarization to save costs:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": "anthropic/claude-sonnet-4",
+      "consolidation_model": "openrouter/google/gemini-flash-2.0",
+      "auto_consolidate": true,
+      "memory_window": 50
+    }
+  }
+}
+```
+
+**Cost comparison** (per consolidation):
+
+| Model | Input (70 msgs @ 40K tokens) | Output (summary @ 300 tokens) | Total Cost |
+|-------|------------------------------|-------------------------------|------------|
+| Claude Sonnet-4 | $0.12 | $0.045 | $0.165 |
+| Gemini Flash 2.0 | $0.004 | $0.0003 | $0.0043 |
+
+<Tip>
+Gemini Flash is 38x cheaper for consolidation and produces equivalent summaries for most tasks.
+</Tip>
+
+## Task Persistence
+
+### Session Management
+
+Sessions are automatically persisted to disk:
+
+```
+~/.grip/workspace/sessions/
+├── cli:default.json
+├── telegram:12345.json
+└── api:task-xyz.json
+```
+
+Each session file stores:
+- Full message history
+- Conversation summary (if consolidated)
+- Metadata (timestamps, token counts)
+
+From `grip/session.py` (inferred from usage in `agent_cmd.py:387`):
+
+```python
+class SessionManager:
+    def get_or_create(self, session_key: str) -> Session:
+        """Load existing session or create new one."""
+    
+    def save(self, session: Session) -> None:
+        """Persist session to disk."""
+    
+    def delete(self, session_key: str) -> None:
+        """Remove session from disk."""
+```
+
+### Long-Running Task Pattern
+
+**Scenario**: Process a large dataset over multiple days
+
+```python
+import asyncio
+from grip import GripClient
+
+client = GripClient()
+
+# Day 1: Start processing
+result = await client.run(
+    "Process files 1-100 from data/input/",
+    session_key="batch-processing-job-1"
+)
+print(result.response)
+
+# System reboot, process restarts
+
+# Day 2: Resume from same session
+result = await client.run(
+    "Continue processing files 101-200",
+    session_key="batch-processing-job-1"  # Same key = same session
+)
+print(result.response)
+# Agent remembers: "I previously processed files 1-100..."
+```
+
+### Resuming Interrupted Tasks
+
+**Interactive CLI**:
+
+```bash
+grip agent
+> Start building the project and fix all errors
+
+# Agent runs for 20 iterations, then you Ctrl+C
+
+# Later, resume:
+grip agent
+> Continue where you left off
+
+# Agent has full context from previous session
+```
+
+**Via API**:
+
+```bash
+# Start task
+curl -X POST http://localhost:18800/api/v1/agent/run \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "message": "Analyze all Python files and generate coverage report",
+    "session_key": "analysis-job-123"
+  }'
+
+# Check status later
+curl http://localhost:18800/api/v1/agent/sessions/analysis-job-123 \
+  -H "Authorization: Bearer $TOKEN"
+
+# Resume
+curl -X POST http://localhost:18800/api/v1/agent/run \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "message": "Continue analysis",
+    "session_key": "analysis-job-123"
+  }'
+```
+
+## Memory Window Tuning for Long Tasks
+
+### Small Window (10-30 messages)
+
+**Pros**:
+- Low token usage per iteration
+- Fast consolidation
+- Efficient for tool-heavy workflows
+
+**Cons**:
+- Frequent consolidation (every ~50 iterations)
+- Agent may forget early context
+
+**Best for**: Data processing, file operations, automated testing
+
+### Large Window (100-200 messages)
+
+**Pros**:
+- Agent retains full context for hundreds of iterations
+- Rare consolidation
+- Better decision-making with complete history
+
+**Cons**:
+- High token usage (10K-50K tokens per iteration)
+- Slow requests when context is full
+
+**Best for**: Complex debugging, architecture design, research synthesis
+
+### Configuration Example
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "memory_window": 50
+    },
+    "profiles": {
+      "batch-processor": {
+        "memory_window": 20,
+        "auto_consolidate": true,
+        "max_tool_iterations": 0
+      },
+      "architect": {
+        "memory_window": 150,
+        "auto_consolidate": true,
+        "max_tool_iterations": 0
+      }
+    }
+  }
+}
+```
+
+## Monitoring Long Tasks
+
+### Token Usage Tracking
+
+From `grip/engines/types.py:24`:
+
+```python
+@dataclass(slots=True)
+class AgentRunResult:
+    response: str
+    iterations: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    tool_calls_made: list[str] = field(default_factory=list)
+    tool_details: list[ToolCallDetail] = field(default_factory=list)
+    
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
+```
+
+**Check token usage**:
+
+```python
+result = await client.run("Long task...", session_key="job-1")
+
+print(f"Iterations: {result.iterations}")
+print(f"Total tokens: {result.total_tokens}")
+print(f"Tools used: {result.tool_calls_made}")
+
+# Output:
+# Iterations: 47
+# Total tokens: 183920
+# Tools used: ['read_file', 'exec', 'edit_file', 'write_file']
+```
+
+### Iteration Count Limits
+
+Set a soft limit to prevent runaway tasks:
+
+```json
+{
+  "agents": {
+    "profiles": {
+      "safe-automation": {
+        "max_tool_iterations": 100,
+        "memory_window": 30
+      }
+    }
+  }
+}
+```
+
+The agent will stop after 100 iterations even if the task is incomplete, preventing infinite loops.
+
+## Example: Multi-Day Research Project
+
+**Day 1**: Initial research
+
+```bash
+grip agent
+> Research quantum computing trends 2024-2025. Search academic papers, 
+  industry reports, and company announcements. Organize findings in 
+  research/quantum-computing.md
+
+# Agent runs 30 iterations:
+# - 10 web searches
+# - 15 web_fetch calls
+# - 5 write_file/edit_file operations
+# Result: Draft report with 20 sources
+```
+
+**Day 2**: Deep dive
+
+```bash
+grip agent
+> Continue quantum computing research. Focus on IBM and Google's latest 
+  hardware developments. Add a "Hardware" section to the report.
+
+# Agent remembers:
+# - Previous searches (avoids duplicates)
+# - Report structure
+# - Sources already cited
+# Runs 25 more iterations, updates report
+```
+
+**Day 3**: Finalization
+
+```bash
+grip agent
+> Finalize quantum computing report. Add executive summary, 
+  verify all citations, generate bibliography.
+
+# Agent:
+# - Reviews consolidated summary of days 1-2
+# - Accesses recent 50 messages for context
+# - Completes report in 12 iterations
+```
+
+**Total**: 67 iterations across 3 days, single persistent session, automatic consolidation prevented context overflow.
+
+## Best Practices
+
+1. **Enable auto_consolidate**: Always set to `true` for long tasks
+2. **Use unlimited iterations cautiously**: Monitor first few runs to ensure no infinite loops
+3. **Set max_daily_tokens**: Prevent cost overruns on runaway tasks
+4. **Choose appropriate memory_window**: Smaller for automation, larger for research/debugging
+5. **Use cheap consolidation_model**: Gemini Flash or GPT-4o-mini saves 90%+ on compaction costs
+6. **Monitor token usage**: Check `AgentRunResult.total_tokens` to track costs
+7. **Name sessions descriptively**: Use `session_key` like `"project-build-fix-123"` for easy tracking
+8. **Clear old sessions**: Run `/new` or `delete_session()` when starting unrelated tasks

@@ -1,0 +1,493 @@
+---
+title: "grip agent"
+description: "Chat with the AI agent in interactive mode, one-shot mode, or with piped input"
+---
+
+## Overview
+
+The `grip agent` command provides direct access to the AI agent for interactive conversations, one-shot queries, and processing piped input.
+
+## Usage
+
+```bash
+grip agent [OPTIONS]
+```
+
+## Modes
+
+### Interactive Mode
+
+Start an interactive chat session with the agent:
+
+```bash
+grip agent
+```
+
+**Features:**
+- Command autocomplete (type `/` to see options)
+- Session persistence across runs
+- Multi-turn conversations with context
+- Slash commands for session management
+- Model switching on the fly
+- Rich markdown rendering
+
+**Example session:**
+
+```
+╭─ grip Interactive Mode  v1.0.0 ──────────────────────╮
+│                                                       │
+│  Provider :  Anthropic                                │
+│  Model    :  claude-sonnet-4                          │
+│  Engine   :  claude_sdk                               │
+│                                                       │
+│  Type a message or /help for commands.                │
+│  Start typing / to autocomplete commands.             │
+╰───────────────────────────────────────────────────────╯
+
+grip (claude-sonnet-4)> What time is it?
+
+The current time is 2:47 PM.
+
+(1 iteration | 89 tokens)
+
+grip (claude-sonnet-4)> /model gpt-4o
+Model switched to gpt-4o via OpenAI
+
+grip (gpt-4o)> /exit
+Goodbye!
+```
+
+### One-Shot Mode
+
+Send a single message and get a response:
+
+```bash
+grip agent -m "What time is it?"
+grip agent --message "Analyze this code: def hello(): print('hi')"
+```
+
+**Example:**
+
+```bash
+$ grip agent -m "List files in current directory"
+
+Here are the files in the current directory:
+
+- README.md
+- config.json
+- requirements.txt
+- src/
+
+(2 iterations | 234 tokens)
+```
+
+### Piped Input Mode
+
+Pipe data from stdin to the agent:
+
+```bash
+cat error.log | grip agent -m "Fix this error"
+ps aux | grip agent -m "What's using the most memory?"
+git diff | grip agent -m "Review these changes"
+```
+
+**Example:**
+
+```bash
+$ cat error.log | grip agent -m "Explain this error"
+
+The error shows a TypeError in the database connection module:
+
+<stdin>
+TypeError: Cannot read property 'query' of undefined
+at Database.execute (db.js:45)
+</stdin>
+
+This indicates the database client wasn't properly initialized...
+```
+
+<Note>
+  Piped input is wrapped in `<stdin>` tags and appended to your message automatically.
+</Note>
+
+## Options
+
+### --message / -m
+
+Send a one-shot message instead of entering interactive mode:
+
+```bash
+grip agent -m "Your question here"
+grip agent --message "Multi-line\nquestion\nhere"
+```
+
+### --model
+
+Override the default model for this session:
+
+```bash
+grip agent --model gpt-4o
+grip agent --model anthropic/claude-opus-4
+grip agent --model openrouter/anthropic/claude-sonnet-4
+```
+
+**Format:** `[provider/]model-name`
+
+- Simple: `gpt-4o` (uses default provider)
+- With provider: `anthropic/claude-sonnet-4`
+- Full path: `openrouter/anthropic/claude-opus-4`
+
+### --no-markdown
+
+Output plain text instead of rendered markdown:
+
+```bash
+grip agent --no-markdown -m "Format output"
+```
+
+Useful for:
+- Scripting and automation
+- Piping output to other commands
+- Plain text processing
+
+## Interactive Slash Commands
+
+All commands start with `/` and support autocomplete. Type `/` to see available options.
+
+### Session Management
+
+#### /new
+
+Start a fresh session and clear terminal:
+
+```
+grip (claude-sonnet-4)> /new
+New session started.
+```
+
+#### /clear
+
+Clear all messages and terminal:
+
+```
+grip (claude-sonnet-4)> /clear
+Cleared 8 messages.
+```
+
+#### /undo
+
+Remove the last exchange (user message + assistant response):
+
+```
+grip (claude-sonnet-4)> /undo
+Last exchange removed.
+```
+
+#### /rewind N
+
+Remove the last N exchanges:
+
+```
+grip (claude-sonnet-4)> /rewind 3
+Rewound 3 exchange(s).
+```
+
+#### /compact
+
+Summarize and compress session history to save tokens:
+
+```
+grip (claude-sonnet-4)> /compact
+Session compacted: 24 -> 6 messages.
+
+╭─ Conversation Summary ────────────────────────╮
+│ Discussed Python async patterns and reviewed  │
+│ database connection code. Fixed TypeError in  │
+│ db.js and optimized query performance.        │
+╰───────────────────────────────────────────────╯
+```
+
+<Note>
+  Use `/compact` when approaching context limits. It preserves conversation context while reducing token usage.
+</Note>
+
+#### /copy
+
+Copy the last assistant response to clipboard:
+
+```
+grip (claude-sonnet-4)> /copy
+Copied last response to clipboard.
+```
+
+Requires:
+- macOS: `pbcopy` (built-in)
+- Windows: `clip` (built-in)
+- Linux: `xclip` package
+
+### Configuration Commands
+
+#### /model
+
+Show current model or switch to a different one:
+
+```
+grip (claude-sonnet-4)> /model
+
+╭─ Model ───────────────────────────────────────╮
+│  Provider   :  Anthropic                      │
+│  Model      :  claude-sonnet-4                │
+│  Full ID    :  anthropic/claude-sonnet-4      │
+│                                               │
+│  Switch with:  /model provider/model-name     │
+│  Providers  :  OpenAI, Anthropic, Google, ... │
+╰───────────────────────────────────────────────╯
+
+grip (claude-sonnet-4)> /model gpt-4o
+Model switched to gpt-4o via OpenAI
+
+grip (gpt-4o)>
+```
+
+#### /provider
+
+Show detailed provider information:
+
+```
+grip (claude-sonnet-4)> /provider
+
+╭─ Model ───────────────────────────────────────╮
+│  Provider   :  Anthropic                      │
+│  Model      :  claude-sonnet-4                │
+│  Full ID    :  anthropic/claude-sonnet-4      │
+╰───────────────────────────────────────────────╯
+```
+
+#### /trust
+
+Manage trusted directories for agent access:
+
+```bash
+# Show trusted directories
+grip (claude-sonnet-4)> /trust
+
+╭─ Trusted Folders ─────────────────────────────╮
+│  Workspace :  ~/grip/workspace (always)       │
+│  Trusted   :  ~/projects/myapp                │
+│                                               │
+│  Grant :  /trust /path/to/folder              │
+│  Revoke:  /trust revoke /path/to/folder       │
+╰───────────────────────────────────────────────╯
+
+# Grant access
+grip (claude-sonnet-4)> /trust ~/projects/myapp
+Agent can now access: /home/user/projects/myapp
+
+# Revoke access
+grip (claude-sonnet-4)> /trust revoke ~/projects/myapp
+Revoked access to: /home/user/projects/myapp
+```
+
+<Note>
+  The workspace directory is always trusted. Use `/trust` to grant access to additional directories outside the workspace.
+</Note>
+
+### Information Commands
+
+#### /doctor
+
+Run diagnostic checks on configuration, provider, and workspace:
+
+```
+grip (claude-sonnet-4)> /doctor
+
+╭─ grip Doctor ─────────────────────────────────╮
+│  PASS  Config loaded                          │
+│  PASS  Provider 'Anthropic' API key           │
+│  PASS  Workspace initialized                  │
+│         (/home/user/grip/workspace)           │
+│  PASS  MCP servers (3)                        │
+│  PASS  Session (15 messages)                  │
+│         (cli:interactive)                     │
+╰───────────────────────────────────────────────╯
+```
+
+#### /mcp
+
+Launch interactive MCP server management:
+
+```
+grip (claude-sonnet-4)> /mcp
+[Opens interactive MCP configuration interface]
+```
+
+#### /tasks
+
+List scheduled cron tasks:
+
+```
+grip (claude-sonnet-4)> /tasks
+
+╭─ Scheduled Tasks ─────────────────────────────╮
+│ ┌──────────┬─────────────┬──────────────┐    │
+│ │ ID       │ Name        │ Schedule     │    │
+│ ├──────────┼─────────────┼──────────────┤    │
+│ │ task_123 │ Daily Report│ 0 9 * * *    │    │
+│ │ task_456 │ DB Backup   │ 0 2 * * *    │    │
+│ └──────────┴─────────────┴──────────────┘    │
+╰───────────────────────────────────────────────╯
+```
+
+#### /status
+
+Show session and system information:
+
+```
+grip (claude-sonnet-4)> /status
+
+╭─ Status ──────────────────────────────────────╮
+│  Session  :  cli:interactive                  │
+│  Messages :  15                               │
+│  Summary  :  Yes                              │
+│                                               │
+│  Provider :  Anthropic                        │
+│  Model    :  claude-sonnet-4                  │
+│  Engine   :  claude_sdk                       │
+│                                               │
+│  Memory   :  127 facts                        │
+╰───────────────────────────────────────────────╯
+```
+
+#### /help
+
+Show all available commands:
+
+```
+grip (claude-sonnet-4)> /help
+
+╭─ Commands ────────────────────────────────────╮
+│ ┌─────────────┬─────────────────────────┐    │
+│ │ Session                               │    │
+│ │   /new      │ Start fresh session     │    │
+│ │   /clear    │ Clear all messages      │    │
+│ │   /undo     │ Remove last exchange    │    │
+│ │   ...                                 │    │
+│ └─────────────────────────────────────────┘    │
+╰───────────────────────────────────────────────╯
+```
+
+#### /exit
+
+Quit interactive mode:
+
+```
+grip (claude-sonnet-4)> /exit
+Goodbye!
+```
+
+Alternatives: `/quit`, `Ctrl+D`, `Ctrl+C`
+
+## Command History
+
+Interactive mode maintains command history across sessions:
+
+- **Up/Down arrows** - Navigate previous commands
+- **Ctrl+R** - Search command history
+- **History file** - `~/.grip/history/cli_history`
+
+## Examples
+
+### Basic Usage
+
+```bash
+# Interactive mode
+grip agent
+
+# One-shot query
+grip agent -m "What's the weather like?"
+
+# With custom model
+grip agent --model gpt-4o -m "Explain quantum computing"
+
+# Plain text output
+grip agent --no-markdown -m "List prime numbers up to 100"
+```
+
+### Piped Input
+
+```bash
+# Analyze logs
+cat /var/log/app.log | grip agent -m "Find errors"
+
+# Code review
+git diff | grip agent -m "Review this PR"
+
+# Process data
+curl https://api.example.com/data | grip agent -m "Summarize this JSON"
+
+# System diagnostics
+docker ps | grip agent -m "Any containers using too much memory?"
+```
+
+### Scripting
+
+```bash
+#!/bin/bash
+
+# Automated code analysis
+for file in src/*.py; do
+  echo "Analyzing $file..."
+  cat "$file" | grip agent --no-markdown -m "Find potential bugs"
+done
+
+# Daily report generation
+grip agent --no-markdown -m "Generate daily metrics report" > report.txt
+
+# Interactive debugging session
+grip agent --verbose --model gpt-4o
+```
+
+## Tool Usage Statistics
+
+After each agent response, Grip shows execution statistics:
+
+```
+┌──────────────┬────────┬─────────┐
+│ Tool         │ Status │ Time    │
+├──────────────┼────────┼─────────┤
+│ bash         │ OK     │ 234ms   │
+│ read         │ OK     │ 12ms    │
+│ write        │ OK     │ 45ms    │
+└──────────────┴────────┴─────────┘
+
+(3 iterations | 1,247 tokens)
+```
+
+## First Run Setup
+
+If no configuration exists, `grip agent` automatically runs the setup wizard:
+
+```bash
+$ grip agent
+
+No configuration found. Running setup wizard...
+
+Welcome to Grip AI Setup!
+
+Select your AI provider:
+  1. OpenAI
+  2. Anthropic
+  3. Google
+  ...
+```
+
+<Note>
+  Run `grip onboard` manually to configure Grip before using agent commands.
+</Note>
+
+## Related Commands
+
+- **[grip gateway](/cli/gateway)** - Run full platform with channels and API
+- **[grip config](/cli/config)** - View and modify configuration
+- **[grip mcp](/cli/mcp)** - Manage MCP server connections
+- **[grip skills](/cli/skills)** - Install custom agent skills

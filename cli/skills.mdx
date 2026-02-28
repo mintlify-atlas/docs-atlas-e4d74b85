@@ -1,0 +1,567 @@
+---
+title: "grip skills"
+description: "Manage agent skills with list, install, and remove commands"
+---
+
+## Overview
+
+The `grip skills` command manages agent skills - specialized instruction sets that enhance the agent's capabilities. Skills are defined in markdown files and can be built-in or workspace-specific.
+
+## Subcommands
+
+- `grip skills list` - Show all available skills
+- `grip skills install` - Install a skill from a markdown file
+- `grip skills remove` - Remove a workspace skill by name
+
+## grip skills list
+
+Display all available skills:
+
+```bash
+grip skills list
+```
+
+**Example output:**
+
+```
+╭─ Skills ──────────────────────────────────────────────────────────────────╮
+│ ┌──────────────┬─────────────────────────────────┬───────────┬─────────┐ │
+│ │ Name         │ Description                     │ Source    │ Always  │ │
+│ ├──────────────┼─────────────────────────────────┼───────────┼─────────┤ │
+│ │ mintlify     │ Build Mintlify documentation    │ built-in  │ No      │ │
+│ │ update-nav   │ Add pages to docs.json          │ built-in  │ No      │ │
+│ │ doc-reader   │ Read external documentation     │ built-in  │ No      │ │
+│ │ doc-author   │ Write and edit documentation    │ built-in  │ Yes     │ │
+│ │ custom-api   │ Company API integration helper  │ workspace │ No      │ │
+│ └──────────────┴─────────────────────────────────┴───────────┴─────────┘ │
+╰───────────────────────────────────────────────────────────────────────────╯
+```
+
+### Columns
+
+- **Name** - Skill identifier
+- **Description** - Short description of capabilities
+- **Source** - `built-in` (system) or `workspace` (custom)
+- **Always Loaded** - Whether skill is always available
+
+### Skill Types
+
+#### Built-in Skills
+
+- Located in the Grip installation directory
+- Cannot be removed
+- Updated with Grip releases
+- Provide core functionality
+
+#### Workspace Skills
+
+- Located in `~/grip/workspace/skills/`
+- Custom skills for your specific use cases
+- Can be removed
+- Loaded when relevant to the task
+
+## grip skills install
+
+Install a skill from a markdown file:
+
+```bash
+grip skills install <file_path>
+```
+
+### Arguments
+
+- **file_path** - Path to a `SKILL.md` file
+
+### Skill File Format
+
+Skills are markdown files with frontmatter:
+
+```markdown
+---
+name: custom-api
+description: Company API integration helper
+always_loaded: false
+---
+
+# Custom API Skill
+
+This skill helps the agent interact with our company API.
+
+## When to Use
+
+Invoke this skill when the user asks about:
+- Customer data queries
+- Order management
+- Inventory checks
+
+## API Endpoints
+
+### Get Customer
+
+```bash
+GET /api/customers/{id}
+```
+
+### Create Order
+
+```bash
+POST /api/orders
+Content-Type: application/json
+
+{
+  "customer_id": "123",
+  "items": [...]
+}
+```
+
+## Examples
+
+User: "Get customer 12345"
+Agent: [Uses bash tool to call API endpoint]
+
+...
+```
+
+### Example
+
+```bash
+grip skills install ~/skills/custom-api.md
+```
+
+**Output:**
+```
+Skill installed: ~/grip/workspace/skills/custom-api.md
+  Name: custom-api
+  Description: Company API integration helper
+```
+
+### Installation Process
+
+1. Reads the markdown file
+2. Parses frontmatter metadata
+3. Copies to workspace skills directory
+4. Verifies installation by scanning
+5. Displays confirmation
+
+### Frontmatter Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Unique skill identifier |
+| `description` | Yes | Short description |
+| `always_loaded` | No | Load skill for every task (default: false) |
+
+### Example Frontmatter
+
+```yaml
+---
+name: github-helper
+description: GitHub API integration and workflow automation
+always_loaded: false
+---
+```
+
+## grip skills remove
+
+Remove a workspace skill:
+
+```bash
+grip skills remove <name>
+```
+
+### Arguments
+
+- **name** - Skill name to remove
+
+### Example
+
+```bash
+grip skills remove custom-api
+```
+
+**Output:**
+```
+Removed: custom-api
+```
+
+**If skill not found or built-in:**
+```
+Cannot remove: custom-api (not found or built-in)
+```
+
+<Note>
+  You cannot remove built-in skills. Only workspace skills can be removed.
+</Note>
+
+## Skill Loading
+
+### Always Loaded
+
+Skills with `always_loaded: true` are included in every agent session:
+
+```yaml
+---
+always_loaded: true
+---
+```
+
+**Use cases:**
+- Core company workflows
+- Frequently used APIs
+- Standard operating procedures
+
+### On-Demand Loading
+
+Skills with `always_loaded: false` are loaded when relevant:
+
+```yaml
+---
+always_loaded: false
+---
+```
+
+**Use cases:**
+- Specialized tools
+- Rarely used APIs
+- Context-specific workflows
+
+<Note>
+  Always-loaded skills consume tokens in every request. Use sparingly for critical functionality only.
+</Note>
+
+## Skill Storage
+
+Skills are stored in:
+
+```
+~/grip/workspace/skills/
+├── custom-api.md
+├── github-helper.md
+└── company-workflows.md
+```
+
+### Directory Structure
+
+```bash
+$ tree ~/grip/workspace/skills/
+~/grip/workspace/skills/
+├── SKILL_NAME_1.md
+├── SKILL_NAME_2.md
+└── subdirectory/
+    └── SKILL_NAME_3.md
+```
+
+## Creating Skills
+
+### Step 1: Create Markdown File
+
+```bash
+vim ~/skills/my-skill.md
+```
+
+### Step 2: Add Frontmatter
+
+```markdown
+---
+name: my-skill
+description: Does something useful
+always_loaded: false
+---
+```
+
+### Step 3: Write Instructions
+
+```markdown
+# My Skill
+
+## Purpose
+
+This skill helps the agent...
+
+## When to Use
+
+Invoke this skill when:
+- User asks about X
+- Task involves Y
+- Context requires Z
+
+## Instructions
+
+1. First, do this
+2. Then, do that
+3. Finally, verify
+
+## Examples
+
+### Example 1
+
+User: "Do something"
+Agent: [Steps to follow]
+
+### Example 2
+
+User: "Do something else"
+Agent: [Alternative approach]
+```
+
+### Step 4: Install
+
+```bash
+grip skills install ~/skills/my-skill.md
+```
+
+### Step 5: Verify
+
+```bash
+grip skills list | grep my-skill
+```
+
+## Skill Templates
+
+### API Integration
+
+```markdown
+---
+name: api-name
+description: Integration with API Name service
+always_loaded: false
+---
+
+# API Name Integration
+
+## Authentication
+
+API Key: `$API_NAME_KEY`
+Base URL: `https://api.example.com/v1`
+
+## Endpoints
+
+### GET /resource
+
+Fetch resources...
+
+### POST /resource
+
+Create resource...
+
+## Error Handling
+
+- 401: Invalid API key
+- 429: Rate limited
+- 500: Server error
+```
+
+### Workflow Automation
+
+```markdown
+---
+name: deploy-workflow
+description: Production deployment workflow
+always_loaded: false
+---
+
+# Deployment Workflow
+
+## Pre-deployment Checks
+
+1. Run tests: `npm test`
+2. Check linting: `npm run lint`
+3. Verify build: `npm run build`
+
+## Deployment Steps
+
+1. Tag release: `git tag v1.0.0`
+2. Push to staging: `git push staging main`
+3. Verify staging
+4. Push to production: `git push production main`
+5. Monitor metrics
+
+## Rollback
+
+If issues detected:
+1. Revert deployment
+2. Notify team
+3. Investigate
+```
+
+### Troubleshooting Guide
+
+```markdown
+---
+name: debug-helper
+description: Common debugging steps and solutions
+always_loaded: true
+---
+
+# Debug Helper
+
+## Common Issues
+
+### Connection Timeout
+
+**Symptoms:** Request hangs, timeout error
+
+**Solutions:**
+1. Check network connectivity
+2. Verify firewall rules
+3. Test DNS resolution
+
+### Memory Leak
+
+**Symptoms:** Increasing memory usage over time
+
+**Solutions:**
+1. Check for unclosed resources
+2. Review event listeners
+3. Profile memory usage
+```
+
+## Use Cases
+
+### Company-Specific APIs
+
+```bash
+# Install internal API skill
+grip skills install ~/docs/internal-api.md
+
+# Agent can now help with API queries
+grip agent -m "Get customer 12345 from our API"
+```
+
+### Standard Operating Procedures
+
+```bash
+# Install deployment SOP
+grip skills install ~/docs/deploy-sop.md
+
+# Agent follows procedures
+grip agent -m "Deploy version 2.1.0 to production"
+```
+
+### Code Review Guidelines
+
+```bash
+# Install review checklist
+grip skills install ~/docs/code-review.md
+
+# Agent uses guidelines
+git diff | grip agent -m "Review this PR"
+```
+
+## Skill Best Practices
+
+### Clear Structure
+
+```markdown
+# Skill Name
+
+## Purpose
+[One sentence: what this skill does]
+
+## When to Use
+[Specific triggers for loading this skill]
+
+## Instructions
+[Step-by-step procedures]
+
+## Examples
+[Concrete examples with inputs/outputs]
+
+## References
+[Links to docs, APIs, etc.]
+```
+
+### Specific Triggers
+
+```markdown
+## When to Use
+
+Invoke this skill when the user:
+- Mentions "deploy" or "deployment"
+- Asks about production releases
+- References the staging environment
+```
+
+### Actionable Instructions
+
+```markdown
+## Instructions
+
+1. Run pre-flight checks
+   - Execute: `npm test`
+   - Verify all tests pass
+   
+2. Build for production
+   - Execute: `npm run build`
+   - Check build output for errors
+```
+
+### Code Examples
+
+```markdown
+## Examples
+
+### API Call
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  https://api.example.com/v1/users/123
+```
+
+### Expected Response
+
+```json
+{
+  "id": 123,
+  "name": "John Doe"
+}
+```
+```
+
+## Troubleshooting
+
+### Skill not loading
+
+```bash
+# Check if installed
+grip skills list | grep skill-name
+
+# Re-install
+grip skills remove skill-name
+grip skills install path/to/skill.md
+
+# Verify frontmatter
+head -n 10 ~/grip/workspace/skills/skill-name.md
+```
+
+### Skill always loaded but shouldn't be
+
+```bash
+# Edit skill file
+vim ~/grip/workspace/skills/skill-name.md
+
+# Change frontmatter
+---
+always_loaded: false
+---
+
+# Restart gateway/agent
+grip gateway
+```
+
+### Missing from TOOLS.md
+
+```bash
+# TOOLS.md is regenerated on agent start
+# Check if skill appears
+cat ~/grip/workspace/TOOLS.md | grep -A5 "skill-name"
+
+# Re-run agent to regenerate
+grip agent -m "test"
+```
+
+## Related Commands
+
+- **[grip agent](/cli/agent)** - Uses skills during execution
+- **[grip gateway](/cli/gateway)** - Loads skills for channel bots
+- **skill tool** - Load a skill dynamically (available in interactive mode)

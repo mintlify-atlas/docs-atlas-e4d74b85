@@ -1,0 +1,149 @@
+---
+title: "CLI Overview"
+description: "Introduction to Grip AI command-line interface, global flags, and interactive slash commands"
+---
+
+## Introduction
+
+The Grip AI CLI is an async-first agentic AI platform that provides powerful commands for interacting with AI agents, managing configurations, scheduling tasks, and deploying the full platform.
+
+## Installation
+
+After installing Grip AI, the `grip` command becomes available:
+
+```bash
+grip --help
+```
+
+## Global Flags
+
+All Grip commands support these global flags:
+
+### --verbose / -v
+
+Show DEBUG-level logs for detailed troubleshooting:
+
+```bash
+grip agent --verbose -m "Debug this error"
+grip gateway --verbose
+```
+
+### --quiet / -q
+
+Suppress logs below WARNING level:
+
+```bash
+grip agent --quiet -m "Run silently"
+grip config show --quiet
+```
+
+### --config / -c
+
+Specify a custom configuration file path:
+
+```bash
+grip agent --config ~/custom/config.json
+grip gateway --config /etc/grip/config.json
+```
+
+### --dry-run
+
+Simulate execution without writing files or running commands:
+
+```bash
+grip agent --dry-run -m "What would this do?"
+grip cron add --dry-run "Daily Report" "0 9 * * *" "Generate daily report"
+```
+
+<Note>
+  Dry-run mode is useful for testing commands before actual execution. It shows what would happen without making changes.
+</Note>
+
+## Interactive Slash Commands
+
+When using `grip agent` in interactive mode, these slash commands are available:
+
+### Session Management
+
+- `/new` - Start a fresh session and clear terminal
+- `/clear` - Clear all messages and terminal
+- `/undo` - Remove last exchange
+- `/rewind N` - Remove last N exchanges (e.g., `/rewind 3`)
+- `/compact` - Summarize, compress history, and clear terminal
+- `/copy` - Copy last response to clipboard
+
+### Configuration
+
+- `/model [provider/]name` - Show or switch model
+- `/provider` - Show current provider details
+- `/trust /path` - Grant agent access to a folder
+- `/trust revoke /path` - Revoke agent access to a folder
+
+### Information
+
+- `/doctor` - Check config, provider, and workspace health
+- `/mcp` - List configured MCP servers
+- `/tasks` - List scheduled cron tasks
+- `/status` - Show session and system info
+- `/help` - Show command reference
+- `/exit` - Quit interactive mode
+
+## Command Autocomplete
+
+In interactive mode, start typing `/` to see available commands with descriptions in a dropdown menu:
+
+```bash
+grip agent
+# Type "/" to see all commands
+# Type "/mod" to filter to /model command
+```
+
+## Safety Features
+
+### Root User Warning
+
+Grip warns when running as root and requires confirmation:
+
+```
+WARNING: grip is running as root.
+The AI agent can execute shell commands and modify files.
+Running as root gives it unrestricted access to the entire system.
+This is strongly discouraged — use a non-root user instead.
+
+Continue as root? [y/N]:
+```
+
+<Note>
+  Always run Grip as a non-root user to limit the agent's system access and reduce security risks.
+</Note>
+
+## Available Commands
+
+- **[grip agent](/cli/agent)** - Chat with the AI agent (interactive or one-shot)
+- **[grip gateway](/cli/gateway)** - Run the full platform: channels + cron + heartbeat + API
+- **[grip config](/cli/config)** - View and modify configuration
+- **[grip cron](/cli/cron)** - Manage scheduled cron jobs
+- **[grip skills](/cli/skills)** - Manage agent skills
+- **[grip workflow](/cli/workflow)** - Manage and run multi-agent workflows
+- **[grip mcp](/cli/mcp)** - Manage MCP server configurations
+- **grip onboard** - Initialize grip: set up provider, API key, and workspace
+- **grip serve** - Start the REST API server (standalone)
+- **grip status** - Show system status
+- **grip update** - Pull latest source and re-sync dependencies
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Command" icon="comments" href="/cli/agent">
+    Learn about interactive and one-shot agent modes
+  </Card>
+  <Card title="Gateway Command" icon="server" href="/cli/gateway">
+    Deploy the full platform with channels and cron
+  </Card>
+  <Card title="Configuration" icon="gear" href="/cli/config">
+    Manage Grip configuration settings
+  </Card>
+  <Card title="MCP Servers" icon="plug" href="/cli/mcp">
+    Connect external tools via MCP protocol
+  </Card>
+</CardGroup>

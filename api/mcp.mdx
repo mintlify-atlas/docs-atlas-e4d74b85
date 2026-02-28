@@ -1,0 +1,505 @@
+---
+title: "MCP Server Management"
+description: "Manage MCP servers, OAuth authentication, and server enable/disable operations"
+---
+
+## Overview
+
+The MCP (Model Context Protocol) API provides endpoints for managing MCP server configurations and OAuth authentication flows. You can:
+
+- List all configured MCP servers with status
+- Get detailed status for individual servers
+- Initiate OAuth login flows
+- Enable/disable servers
+
+MCP servers extend the agent's capabilities by providing additional tools and resources.
+
+## GET /api/v1/mcp/servers
+
+List all configured MCP servers with their current status.
+
+### Request
+
+```bash
+curl -X GET http://127.0.0.1:8080/api/v1/mcp/servers \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Response
+
+<ResponseField name="servers" type="array">
+  Array of MCP server status objects.
+  
+  <ResponseField name="name" type="string">
+    Server name from configuration.
+  </ResponseField>
+  
+  <ResponseField name="type" type="string">
+    Server type: `http`, `sse`, or `stdio`.
+  </ResponseField>
+  
+  <ResponseField name="enabled" type="boolean">
+    Whether the server is enabled.
+  </ResponseField>
+  
+  <ResponseField name="has_oauth" type="boolean">
+    Whether the server supports OAuth authentication.
+  </ResponseField>
+  
+  <ResponseField name="has_token" type="boolean">
+    Whether an access token is stored for this server.
+  </ResponseField>
+  
+  <ResponseField name="needs_login" type="boolean">
+    `true` if the server has OAuth, is enabled, but has no token.
+  </ResponseField>
+  
+  <ResponseField name="transport" type="string">
+    Transport details (URL for HTTP/SSE, command for stdio).
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="total" type="integer">
+  Total number of configured servers.
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "servers": [
+    {
+      "name": "supabase",
+      "type": "http",
+      "enabled": true,
+      "has_oauth": true,
+      "has_token": true,
+      "needs_login": false,
+      "transport": "https://mcp.supabase.com"
+    },
+    {
+      "name": "github",
+      "type": "http",
+      "enabled": true,
+      "has_oauth": true,
+      "has_token": false,
+      "needs_login": true,
+      "transport": "https://api.github.com/mcp"
+    },
+    {
+      "name": "local-tools",
+      "type": "stdio",
+      "enabled": true,
+      "has_oauth": false,
+      "has_token": false,
+      "needs_login": false,
+      "transport": "python -m mcp_tools"
+    }
+  ],
+  "total": 3
+}
+```
+
+## GET /api/v1/mcp/{server}/status
+
+Get the status of a single MCP server.
+
+### Request
+
+```bash
+curl -X GET http://127.0.0.1:8080/api/v1/mcp/github/status \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+<ParamField path="server" type="string" required>
+  The MCP server name (URL path parameter).
+</ParamField>
+
+### Response
+
+Returns a single MCP server status object (same structure as in the list response).
+
+```json
+{
+  "name": "github",
+  "type": "http",
+  "enabled": true,
+  "has_oauth": true,
+  "has_token": false,
+  "needs_login": true,
+  "transport": "https://api.github.com/mcp"
+}
+```
+
+### Error Responses
+
+**404 Not Found** - Server does not exist:
+
+```json
+{
+  "detail": "MCP server 'unknown' not found"
+}
+```
+
+## POST /api/v1/mcp/{server}/login
+
+Initiate OAuth login for an MCP server. Supports two flow types:
+
+1. **Explicit OAuth** - Servers with `OAuthConfig` in config
+2. **Gateway-Mediated MCP OAuth** - HTTP/SSE servers using MCP's OAuth discovery
+
+### Request
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/mcp/github/login \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+<ParamField path="server" type="string" required>
+  The MCP server name to authenticate with.
+</ParamField>
+
+### Response
+
+<ResponseField name="auth_url" type="string">
+  The OAuth authorization URL. Open this in a browser to complete the login flow.
+</ResponseField>
+
+<ResponseField name="server_name" type="string">
+  The server name that was requested.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Always `"pending"` when returning an auth URL.
+</ResponseField>
+
+<ResponseField name="tools_discovered" type="integer">
+  Number of tools discovered (currently always 0 at login initiation).
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "auth_url": "https://github.com/login/oauth/authorize?client_id=abc123&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Fapi%2Fv1%2Fmcp%2Fcallback&state=abc123xyz&code_challenge=xyz789&code_challenge_method=S256&scope=repo%20user",
+  "server_name": "github",
+  "status": "pending",
+  "tools_discovered": 0
+}
+```
+
+<Info>
+The user must open the `auth_url` in a browser to authorize the application. After authorization, the OAuth provider redirects to the callback endpoint.
+</Info>
+
+### OAuth Flow Modes
+
+#### 1. Explicit OAuth
+
+Servers with explicit OAuth configuration in `config.json`:
+
+```json
+{
+  "tools": {
+    "mcp_servers": {
+      "github": {
+        "url": "https://api.github.com/mcp",
+        "enabled": true,
+        "oauth": {
+          "auth_url": "https://github.com/login/oauth/authorize",
+          "token_url": "https://github.com/login/oauth/access_token",
+          "client_id": "your_client_id",
+          "scopes": ["repo", "user"]
+        }
+      }
+    }
+  }
+}
+```
+
+#### 2. Gateway-Mediated MCP OAuth
+
+HTTP/SSE servers without explicit `OAuthConfig`. The gateway:
+1. Discovers OAuth metadata from the MCP server
+2. Registers a client dynamically
+3. Returns an auth URL for the user
+
+Example (Supabase):
+
+```json
+{
+  "tools": {
+    "mcp_servers": {
+      "supabase": {
+        "url": "https://mcp.supabase.com",
+        "enabled": true
+      }
+    }
+  }
+}
+```
+
+### Error Responses
+
+**404 Not Found** - Server does not exist:
+
+```json
+{
+  "detail": "MCP server 'unknown' not found"
+}
+```
+
+**400 Bad Request** - Server has no OAuth support:
+
+```json
+{
+  "detail": "Server 'local-tools' has no URL or OAuth configuration"
+}
+```
+
+## GET /api/v1/mcp/callback
+
+OAuth callback endpoint. This is called by the OAuth provider after the user authorizes the application.
+
+<Warning>
+This endpoint is **public** (no Bearer auth required) because the OAuth provider redirects the user's browser here.
+</Warning>
+
+### Request
+
+The OAuth provider redirects to this endpoint with query parameters:
+
+```
+http://127.0.0.1:8080/api/v1/mcp/callback?code=abc123&state=xyz789
+```
+
+<ParamField query="code" type="string" required>
+  The authorization code from the OAuth provider.
+</ParamField>
+
+<ParamField query="state" type="string" required>
+  The state token sent in the authorization request (for CSRF protection).
+</ParamField>
+
+<ParamField query="error" type="string">
+  Error code if authorization failed.
+</ParamField>
+
+### Response
+
+Returns an HTML page (not JSON):
+
+#### Success
+
+```html
+<!DOCTYPE html>
+<html>
+<head><title>Login Successful</title></head>
+<body style="font-family:system-ui,sans-serif;...">
+  <div style="text-align:center;...">
+    <h1 style="color:#22c55e;">Login Successful!</h1>
+    <p style="color:#64748b;">You can close this tab and return to grip.</p>
+  </div>
+</body>
+</html>
+```
+
+#### Error
+
+```html
+<html><body>
+<h1>Login Failed</h1>
+<p>Error: access_denied</p>
+</body></html>
+```
+
+The access token is stored automatically and made available to the MCP server.
+
+### Token Storage
+
+- **Explicit OAuth**: Stored in `~/.grip/token_store.json`
+- **MCP OAuth**: Stored in `~/.grip/mcp_clients.json` (MCP library format)
+
+## POST /api/v1/mcp/{server}/enable
+
+Enable a disabled MCP server.
+
+### Request
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/mcp/github/enable \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+<ParamField path="server" type="string" required>
+  The MCP server name to enable.
+</ParamField>
+
+### Response
+
+```json
+{
+  "server": "github",
+  "status": "enabled"
+}
+```
+
+<Note>
+Enabling a server updates `config.json` and takes effect immediately (no restart required).
+</Note>
+
+## POST /api/v1/mcp/{server}/disable
+
+Disable an MCP server without deleting it.
+
+### Request
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/mcp/github/disable \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+<ParamField path="server" type="string" required>
+  The MCP server name to disable.
+</ParamField>
+
+### Response
+
+```json
+{
+  "server": "github",
+  "status": "disabled"
+}
+```
+
+Disabling a server:
+- Stops the agent from loading tools from that server
+- Does not delete the server configuration
+- Preserves stored OAuth tokens
+
+## Complete OAuth Flow Example
+
+### Python Client
+
+```python
+import httpx
+import webbrowser
+
+base_url = "http://127.0.0.1:8080"
+headers = {"Authorization": f"Bearer {token}"}
+
+# 1. Initiate login
+response = httpx.post(
+    f"{base_url}/api/v1/mcp/github/login",
+    headers=headers
+)
+data = response.json()
+
+auth_url = data["auth_url"]
+print(f"Opening browser to: {auth_url}")
+webbrowser.open(auth_url)
+
+# 2. User authorizes in browser
+# 3. OAuth provider redirects to /api/v1/mcp/callback
+# 4. Token is stored automatically
+
+input("Press Enter after authorizing in the browser...")
+
+# 5. Verify the server has a token
+response = httpx.get(
+    f"{base_url}/api/v1/mcp/github/status",
+    headers=headers
+)
+status = response.json()
+
+if status["has_token"]:
+    print("✓ Login successful! Server is ready.")
+else:
+    print("✗ Login failed or incomplete.")
+```
+
+### JavaScript/TypeScript Client
+
+```typescript
+const baseUrl = 'http://127.0.0.1:8080';
+const headers = { 'Authorization': `Bearer ${token}` };
+
+// 1. Initiate login
+const response = await fetch(`${baseUrl}/api/v1/mcp/github/login`, {
+  method: 'POST',
+  headers
+});
+const data = await response.json();
+
+// 2. Open auth URL (in web app, use window.open or redirect)
+window.open(data.auth_url, '_blank');
+
+// 3. Poll for token after user returns
+const checkToken = async () => {
+  const statusResponse = await fetch(
+    `${baseUrl}/api/v1/mcp/github/status`,
+    { headers }
+  );
+  const status = await statusResponse.json();
+  return status.has_token;
+};
+
+// Poll every 2 seconds
+const interval = setInterval(async () => {
+  if (await checkToken()) {
+    console.log('✓ Login successful!');
+    clearInterval(interval);
+  }
+}, 2000);
+```
+
+## Security Considerations
+
+### PKCE (Proof Key for Code Exchange)
+
+All OAuth flows use PKCE with SHA-256:
+- `code_verifier`: 64-byte random string
+- `code_challenge`: SHA-256 hash of verifier, base64-encoded
+- `code_challenge_method`: `S256`
+
+### State Parameter
+
+CSRF protection via state tokens:
+- 32-byte random state token generated per flow
+- Stored server-side with 10-minute TTL
+- Validated on callback
+- Max 100 pending flows (oldest pruned)
+
+### Token Storage
+
+Tokens are stored with restricted permissions:
+
+```bash
+$ ls -la ~/.grip/token_store.json
+-rw------- 1 user user 1234 Feb 28 10:00 token_store.json
+```
+
+### Redirect URI
+
+Redirect URI is built from gateway config:
+
+```
+http://{gateway.host}:{gateway.port}/api/v1/mcp/callback
+```
+
+Example: `http://127.0.0.1:8080/api/v1/mcp/callback`
+
+<Warning>
+For production deployments with HTTPS reverse proxies, ensure the redirect URI matches the public URL. You may need to configure the OAuth provider with `https://yourdomain.com/api/v1/mcp/callback`.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tools API" icon="wrench" href="/api/tools">
+    View tools provided by MCP servers
+  </Card>
+  <Card title="Management API" icon="gear" href="/api/management">
+    View system configuration
+  </Card>
+</CardGroup>

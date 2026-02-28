@@ -1,0 +1,612 @@
+---
+title: Custom Skills
+description: Create markdown-based skills to extend agent capabilities with specialized workflows and instructions
+---
+
+Skills are markdown files that inject specialized knowledge, workflows, and instructions into the agent's system prompt. They enable reusable expertise without modifying code.
+
+## Skill Architecture
+
+From `grip/skills/loader.py:1`:
+
+```python
+"""Skills system: discover and load SKILL.md files from multiple directories.
+
+Skills are markdown files that provide the agent with specialized knowledge
+or workflows. Each SKILL.md contains a name, description, and instructions
+that are injected into the system prompt when the skill is loaded.
+
+Skills are discovered from (in priority order — later sources override earlier):
+  1. grip/skills/builtin/   — built-in skills shipped with grip
+  2. ~/.agents/skills/      — global shared skills used by multiple agentic tools
+  3. workspace/skills/      — user-installed skills specific to this workspace
+"""
+```
+
+## Skill File Structure
+
+### Folder-Based (Recommended)
+
+```
+~/.grip/workspace/skills/
+└── my-skill/
+    ├── SKILL.md              # Required: name, description, instructions
+    ├── scripts/              # Optional: executable code
+    │   └── process.py
+    ├── references/           # Optional: docs loaded on demand
+    │   ├── api-docs.md
+    │   └── examples.md
+    └── assets/               # Optional: templates, configs
+        └── template.json
+```
+
+### Flat File (Simple Skills)
+
+```
+~/.grip/workspace/skills/
+├── quick-skill.md
+└── another-skill.md
+```
+
+## SKILL.md Format
+
+### YAML Frontmatter (Recommended)
+
+From `grip/skills/loader.py:185`:
+
+```markdown
+---
+title: Skill Name
+description: What the skill does and when to use it
+category: automation
+always_loaded: false
+---
+
+# Instructions
+
+Step-by-step instructions for the agent...
+```
+
+**Frontmatter fields**:
+- `title`: Skill name (displayed in skill list)
+- `description`: **Critical** — triggers skill activation (see [Writing Descriptions](#writing-descriptions))
+- `category`: Organization hint (`code-quality`, `devops`, `automation`, `research`, etc.)
+- `always_loaded`: Set to `true` to inject into every conversation (use sparingly)
+
+### Legacy Format (Backward Compatible)
+
+From `grip/skills/loader.py:231`:
+
+```markdown
+# Skill Name
+
+> One-line description of what the skill does and when to use it.
+<!-- always_loaded -->   ← optional flag
+
+## Section Heading
+
+Detailed instructions...
+```
+
+**Parsed elements**:
+- First H1 (`#`) becomes the name
+- First blockquote (`>`) becomes the description
+- `<!-- always_loaded -->` comment enables auto-loading
+
+## Writing Descriptions
+
+From the `skill-creator` builtin (`grip/skills/builtin/skill-creator/SKILL.md:44`):
+
+> The description is the ONLY thing evaluated for skill triggering. It must contain:
+> 1. **What** the skill does
+> 2. **When** to activate
+
+**Good description**:
+```markdown
+description: Search and analyze financial market data including stock prices, company fundamentals, and crypto. Use when the user asks about stocks, investments, portfolio, or market data.
+```
+
+**Bad description**:
+```markdown
+description: Financial data skill
+```
+<Info>
+Vague descriptions won't trigger reliably. Include trigger keywords that match user queries.
+</Info>
+
+## Example: Code Review Skill
+
+From `grip/skills/builtin/code-review/SKILL.md`:
+
+```markdown
+---
+title: Code Review
+description: Review code for bugs, security vulnerabilities, performance issues, and adherence to best practices
+category: code-quality
+always_loaded: true
+---
+
+# Code Review
+
+> Review code for bugs, security vulnerabilities, performance issues, and adherence to best practices. Use when asked to review code, audit a file, check a PR, or assess code quality.
+
+## Review Process
+
+### 1. Read Before Judging
+
+Always read the complete file or diff before commenting. Understand the surrounding context — what the function does, who calls it, what data flows through it.
+
+### 2. Check These Categories (in priority order)
+
+**Security** (Critical)
+- Injection vectors: SQL, command, XSS, SSTI, LDAP
+- Hardcoded secrets: API keys, passwords, tokens, connection strings
+- Path traversal: user input used in file paths without sanitization
+- Deserialization: pickle.loads, yaml.load (without SafeLoader), eval(), exec()
+- Auth bypass: missing authentication checks, broken access control
+- SSRF: user-controlled URLs passed to HTTP clients
+
+**Correctness** (Critical)
+- Logic errors: inverted conditions, wrong operator, off-by-one
+- Null/None handling: unguarded attribute access, missing null checks
+- Race conditions: shared mutable state without synchronization
+- Resource leaks: unclosed files, connections, cursors (missing context managers)
+
+**Performance** (Warning)
+- N+1 queries: database calls inside loops
+- Unnecessary allocations: creating objects in hot paths
+- Missing indexes: queries filtering on unindexed columns
+- Blocking calls in async code: time.sleep, synchronous I/O
+
+### 3. Report Format
+
+For each finding, provide:
+
+```
+[SEVERITY] Category — file:line
+
+Problem: What's wrong and why it matters.
+Fix: Specific code change to resolve it.
+```
+
+### Severity Levels
+
+- **CRITICAL**: Exploitable security vulnerability, data loss risk
+- **WARNING**: Performance degradation, potential bug
+- **INFO**: Style improvement, minor optimization
+```
+
+## Example: GitHub Workflow Skill
+
+From `grip/skills/builtin/github/SKILL.md`:
+
+```markdown
+---
+title: GitHub
+description: Interact with GitHub repositories, issues, pull requests, and CI/CD workflows
+category: devops
+---
+
+# GitHub
+
+> Interact with GitHub repositories, issues, pull requests, and CI/CD workflows using the gh CLI. Use when the user mentions GitHub, issues, PRs, CI checks, releases, or repository management.
+
+## Prerequisites
+
+The `gh` CLI must be installed and authenticated:
+
+```bash
+gh auth status
+gh auth login  # If not authenticated
+```
+
+## Issues
+
+```bash
+# List open issues
+gh issue list
+
+# Create an issue
+gh issue create --title "Fix login timeout" \
+  --body "Users experience 30s timeout" \
+  --label "bug"
+
+# Close with comment
+gh issue close 42 --comment "Fixed in PR #45"
+```
+
+## Pull Requests
+
+```bash
+# Create PR from current branch
+gh pr create --title "Add user auth" \
+  --body "Implements JWT-based authentication"
+
+# Check CI status
+gh pr checks 45
+
+# Merge with squash
+gh pr merge 45 --squash --delete-branch
+```
+```
+
+## Skill Discovery and Loading
+
+From `grip/skills/loader.py:56`:
+
+```python
+def scan(self) -> list[Skill]:
+    """Scan all skill directories and load skill metadata.
+    
+    Scan order (later overrides earlier):
+      1. grip/skills/builtin/   — shipped with grip
+      2. ~/.agents/skills/      — global shared skills across agentic tools
+      3. workspace/skills/      — workspace-specific user overrides
+    """
+```
+
+### Priority Order
+
+1. **Built-in skills** (`grip/skills/builtin/`) — lowest priority
+2. **Global skills** (`~/.agents/skills/`) — override built-ins
+3. **Workspace skills** (`~/.grip/workspace/skills/`) — highest priority
+
+<Tip>
+To override a built-in skill, create a skill with the same name in your workspace. Your version will be loaded instead.
+</Tip>
+
+## Installing Skills
+
+### Via CLI
+
+```bash
+# List all loaded skills
+grip skills list
+
+# Install a skill file
+grip skills install /path/to/my-skill.md
+
+# Remove a workspace skill
+grip skills remove my-skill
+```
+
+### Programmatically
+
+From `grip/skills/loader.py:120`:
+
+```python
+from grip.skills.loader import SkillsLoader
+from pathlib import Path
+
+loader = SkillsLoader(workspace_root=Path.home() / ".grip" / "workspace")
+
+# Install a skill
+skill_content = """
+---
+title: Custom Skill
+description: My custom skill for X
+---
+
+Instructions here...
+"""
+
+path = loader.install_skill(skill_content, "custom-skill.md")
+print(f"Skill installed at: {path}")
+
+# Rescan to load new skill
+loader.scan()
+```
+
+## Always-Loaded Skills
+
+From `grip/skills/loader.py:112`:
+
+```python
+def get_always_loaded_content(self) -> str:
+    """Return concatenated content of skills marked always_loaded."""
+```
+
+Set `always_loaded: true` to inject a skill into every conversation:
+
+```markdown
+---
+title: Code Quality Standards
+description: Enforce code quality standards
+always_loaded: true
+---
+
+# Code Quality Standards
+
+Always follow these principles:
+1. Write tests for new features
+2. Handle errors explicitly
+3. Document public APIs
+4. Use type hints in Python
+```
+
+<Info>
+From the code-review skill example, `always_loaded: true` adds the skill to every request. Use sparingly — it increases token usage for ALL conversations.
+</Info>
+
+## Workspace Overrides
+
+Create workspace-specific versions of built-in skills:
+
+```bash
+# Copy built-in skill to workspace
+cp ~/.grip/grip/skills/builtin/github/SKILL.md \
+   ~/.grip/workspace/skills/github.md
+
+# Edit to customize
+vim ~/.grip/workspace/skills/github.md
+
+# Reload (workspace version now takes precedence)
+grip skills list
+```
+
+From `grip/skills/loader.py:79`:
+> Workspace skills (highest priority — override everything)
+
+## Skill with Reference Files
+
+Large skills should split content into references:
+
+```
+api-integration/
+├── SKILL.md
+└── references/
+    ├── authentication.md
+    ├── endpoints.md
+    └── error-codes.md
+```
+
+**SKILL.md**:
+```markdown
+---
+title: API Integration
+description: Integrate with the Acme API. Use when user asks about Acme data.
+---
+
+# API Integration
+
+## Getting Started
+
+1. Read `references/authentication.md` for auth setup
+2. Check `references/endpoints.md` for available endpoints
+3. See `references/error-codes.md` for error handling
+
+## Workflow
+
+When the user requests Acme data:
+
+1. Use `read_file` to load relevant reference (e.g., `read_file("skills/api-integration/references/endpoints.md")`)
+2. Construct API request based on documentation
+3. Execute request using `web_fetch`
+4. Parse and return results
+```
+
+The agent reads reference files on demand, keeping the main skill concise.
+
+## Skill Best Practices
+
+From `grip/skills/builtin/skill-creator/SKILL.md:59`:
+
+### Principles
+
+1. **Be specific** — include exact commands, tool names, parameter formats
+2. **Show examples** — concrete input/output pairs the agent can follow
+3. **Define boundaries** — what the skill handles vs what it doesn't
+4. **Reference grip tools by name** — `read_file`, `write_file`, `exec`, `web_search`
+5. **Include error handling** — what to do when a command fails
+
+### Structure Template
+
+```markdown
+# Skill Name
+
+> Description with trigger words.
+
+## When to Use
+- Trigger condition 1
+- Trigger condition 2
+
+## How It Works
+Step-by-step process the agent follows.
+
+## Commands / Tools Used
+Specific tool invocations with parameters.
+
+## Examples
+Concrete input → output demonstrations.
+
+## Limitations
+What this skill does NOT handle.
+```
+
+## Common Mistakes
+
+From `skill-creator` (`grip/skills/builtin/skill-creator/SKILL.md:156`):
+
+| Mistake | Fix |
+|---------|-----|
+| Description only says what, not when | Add trigger phrases: "Use when..." |
+| Instructions reference tools that don't exist | Use only grip's registered tools |
+| Skill body is 1000+ lines | Split into SKILL.md (core) + references/ (detail) |
+| Using `always_loaded` on a niche skill | Reserve for skills needed in every conversation |
+| Vague instructions like "do the thing" | Specific: "Run `exec` with command `git log --oneline -10`" |
+
+## Naming Conventions
+
+From `skill-creator` (`grip/skills/builtin/skill-creator/SKILL.md:149`):
+
+- Folder name: lowercase, hyphens, alphanumeric (`web-researcher`, `code-review`)
+- Max 64 characters
+- No spaces, underscores, or special characters
+- Name should hint at purpose without reading the description
+
+## Testing Skills
+
+```bash
+# List loaded skills
+grip skills list
+
+# Verify skill appears
+grip skills list | grep my-skill
+
+# Test in conversation
+grip agent
+> Use the my-skill skill to process data.csv
+
+# Check if skill was activated (look for skill instructions in agent reasoning)
+```
+
+## Example: Research Skill
+
+```markdown
+---
+title: Web Research
+description: Conduct thorough web research on any topic. Use when user asks to research, investigate, or gather information about a subject.
+category: research
+---
+
+# Web Research
+
+> Conduct thorough web research on any topic using web_search and web_fetch. Use when the user asks to research, investigate, find information about, or analyze a topic.
+
+## Research Process
+
+### 1. Query Decomposition
+
+Break complex questions into 3-5 focused search queries:
+
+**Example**:
+User: "Research quantum computing trends"
+
+Queries:
+- "quantum computing 2024 trends"
+- "quantum computing commercial applications"
+- "IBM Google quantum computing breakthroughs"
+- "quantum computing investment market size"
+
+### 2. Search Phase
+
+For each query:
+```python
+web_search(query="quantum computing 2024 trends", max_results=5)
+```
+
+Collect top 3-5 URLs per query (15-25 URLs total).
+
+### 3. Content Extraction
+
+Fetch and analyze top results:
+```python
+web_fetch(url="https://...", extract_mode="article")
+```
+
+Prioritize:
+- Academic sources (.edu, arxiv.org, scholar.google.com)
+- Industry reports (Gartner, McKinsey, research firms)
+- Official company announcements
+- Recent content (less than 6 months old)
+
+### 4. Synthesis
+
+Organize findings into structured report:
+
+```
+## Summary
+2-3 sentence overview of key findings.
+
+## Key Findings
+- Finding 1 ([Source](URL))
+- Finding 2 ([Source](URL))
+- Finding 3 ([Source](URL))
+
+## Detailed Analysis
+### Category 1
+Expanded context...
+
+### Category 2
+Expanded context...
+
+## Sources
+1. [Title](URL) - Site Name, Date
+2. [Title](URL) - Site Name, Date
+```
+
+### 5. Quality Checks
+
+- [ ] At least 3 sources cited per major claim
+- [ ] Sources include publication dates
+- [ ] Facts distinguished from opinions
+- [ ] Conflicting information noted
+- [ ] Outdated sources (>1 year) flagged
+
+## Error Handling
+
+**No search results**:
+- Rephrase query with synonyms
+- Broaden search terms
+- Try alternative search engines
+
+**Paywalled content**:
+- Look for free summaries or abstracts
+- Search for academic preprints (arXiv)
+- Find alternative sources covering same topic
+
+**Rate limits**:
+- Space out requests (3 seconds between fetches)
+- Use cached results if available
+
+## Limitations
+
+- Cannot access paywalled academic papers (unless open access)
+- No real-time data (search index has lag)
+- Cannot verify primary sources without access
+- Limited to publicly indexed web content
+```
+
+## Skill Management via API
+
+```python
+from grip.skills.loader import SkillsLoader
+from pathlib import Path
+
+loader = SkillsLoader(workspace_root=Path.home() / ".grip" / "workspace")
+
+# Scan and load all skills
+skills = loader.scan()
+
+# List skill names
+names = loader.get_skill_names()
+print(f"Loaded skills: {names}")
+
+# Get specific skill
+skill = loader.get_skill("code-review")
+if skill:
+    print(f"Name: {skill.name}")
+    print(f"Description: {skill.description}")
+    print(f"Category: {skill.category}")
+    print(f"Always loaded: {skill.always_loaded}")
+    print(f"Source: {skill.source_path}")
+
+# Remove workspace skill
+removed = loader.remove_skill("old-skill")
+print(f"Removed: {removed}")
+```
+
+## Global Skills Directory
+
+From `grip/skills/loader.py:49`:
+
+```python
+_GLOBAL_SKILLS_DIR = Path.home() / ".agents" / "skills"
+```
+
+Skills in `~/.agents/skills/` are shared across multiple agentic tools. Use for:
+- Company-wide coding standards
+- Shared API integration skills
+- Common workflow automations
+
+Workspace skills (`~/.grip/workspace/skills/`) override global skills with the same name.

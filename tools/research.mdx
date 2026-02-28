@@ -1,0 +1,184 @@
+---
+title: "Web Research"
+description: "Multi-step deep research with query decomposition, source ranking, and cited summaries"
+---
+
+## Overview
+
+The web research tool performs deep research on a topic by decomposing it into sub-queries, searching in parallel, ranking sources by quality, fetching content, and building a cited summary with confidence assessment.
+
+## Tool
+
+### web_research
+
+Multi-step web research: decompose topic, search, fetch, and build a cited summary.
+
+<ParamField path="topic" type="string" required>
+  The research topic or question
+</ParamField>
+
+<ParamField path="depth" type="integer">
+  Research depth: 1 (quick), 2 (moderate), 3 (thorough). Default 2.
+</ParamField>
+
+<ParamField path="max_sources" type="integer">
+  Maximum number of unique sources to include. Default 5, max 10.
+</ParamField>
+
+**Example:**
+```python
+result = await web_research(
+    topic="How does OAuth 2.0 authorization code flow work?",
+    depth=3,
+    max_sources=8
+)
+```
+
+---
+
+## Research Process
+
+### 1. Query Decomposition
+
+The tool expands the topic into multiple search queries based on depth level:
+
+**Depth 1 (Quick):**
+- Original query
+- "what is [topic]" variant
+
+**Depth 2 (Moderate):**
+- All depth 1 queries
+- Splits "and" and "vs" comparisons
+- Adds "[topic] explained"
+
+**Depth 3 (Thorough):**
+- All depth 2 queries
+- "how does [topic] work"
+- "why [topic]"
+- "[topic] advantages disadvantages"
+
+**Example decomposition for "OAuth 2.0 vs JWT":**
+```
+Depth 1:
+- OAuth 2.0 vs JWT
+- what is OAuth 2.0 vs JWT
+
+Depth 2:
+- OAuth 2.0
+- JWT
+- OAuth 2.0 vs JWT comparison
+- OAuth 2.0 vs JWT explained
+
+Depth 3:
+- how does OAuth 2.0 vs JWT work
+- why OAuth 2.0 vs JWT
+- OAuth 2.0 vs JWT advantages disadvantages
+```
+
+### 2. Parallel Search
+
+All sub-queries are executed in parallel using DuckDuckGo's JSON API to maximize speed. Results are collected and deduplicated.
+
+### 3. Source Ranking
+
+Sources are ranked and deduplicated by:
+- **Frequency:** Sources appearing in multiple search results score higher
+- **Domain diversity:** Only one result per domain to ensure broad coverage
+- **Quality scoring:** Primary sources (docs, official APIs) ranked above secondary sources
+
+**Source quality levels:**
+- **PRIMARY (score 4-5):** Official docs, GitHub, developer portals, .gov sites, Mozilla
+- **SECONDARY (score 2-3):** Stack Overflow, Medium, Dev.to, Reddit
+- **UNVERIFIED (score 2):** Other domains
+
+### 4. Content Fetching
+
+Top-ranked sources are fetched in parallel, with:
+- HTML tag stripping (script, style, nav, footer)
+- Content truncation at 30,000 characters per source
+- Whitespace normalization
+- Graceful handling of fetch failures
+
+### 5. Cited Summary Generation
+
+The tool builds a structured summary with:
+- **Key findings** from each source with quality labels
+- **Confidence assessment** based on source count and quality
+- **Numbered citations** for easy reference
+
+---
+
+## Output Format
+
+```markdown
+# Research: [Topic]
+
+## Key Findings
+
+**[1] OAuth 2.0 Specification (PRIMARY)**
+OAuth 2.0 is an authorization framework that enables applications
+to obtain limited access to user accounts on an HTTP service...
+
+**[2] JWT Introduction (PRIMARY)**
+JSON Web Tokens are an open, industry standard RFC 7519 method
+for representing claims securely between two parties...
+
+**[3] OAuth vs JWT Comparison (SECONDARY)**
+OAuth 2.0 is an authorization protocol, while JWT is a token format.
+They can be used together: OAuth 2.0 for authorization flow...
+
+## Confidence: HIGH — Multiple authoritative sources agree
+
+## Sources
+
+[1] [PRIMARY] OAuth 2.0 Specification — https://oauth.net/2/
+[2] [PRIMARY] JWT Introduction — https://jwt.io/introduction
+[3] [SECONDARY] OAuth vs JWT on Stack Overflow — https://stackoverflow.com/...
+```
+
+---
+
+## Confidence Levels
+
+### HIGH
+- 3 or more valid sources
+- Average quality score greater than or equal to 3.5
+- Multiple authoritative sources agree
+
+### MEDIUM
+- 2 or more valid sources OR average quality greater than or equal to 3.0
+- Limited sources or mixed authority
+
+### LOW
+- Fewer than 2 sources OR low average quality
+- Few sources or only unofficial references
+
+---
+
+## Best Practices
+
+1. **Use depth 2 for most research** — good balance of speed and thoroughness
+2. **Increase depth to 3 for complex topics** — generates more comprehensive queries
+3. **Set max_sources to 8-10 for thorough research** — ensures broad coverage
+4. **Check confidence level** before acting on findings
+5. **Verify PRIMARY sources** for critical decisions
+
+---
+
+## Limitations
+
+- **No LLM summarization:** Findings are raw excerpts, not synthesized summaries
+- **DuckDuckGo only:** Does not use Brave Search API (may add in future)
+- **Text-only:** Cannot extract content from PDFs, videos, or images
+- **Fetch failures:** Some sources may fail to fetch due to rate limits or paywalls
+
+---
+
+## Implementation
+
+Defined in `grip/tools/research.py`. Uses:
+- Rule-based query decomposition (no LLM call)
+- `asyncio.gather()` for parallel search and fetch operations
+- Domain-based deduplication to ensure diversity
+- Quality scoring with predefined patterns (docs., github.com, .gov, etc.)
+- Frequency-based ranking for multi-query overlap

@@ -1,0 +1,380 @@
+---
+title: Discord Channel
+description: Set up and configure a Discord bot to interact with Grip AI
+---
+
+The Discord channel enables your Grip AI agent to interact with users through Discord servers using the discord.py library.
+
+## Features
+
+- **Command support**: `!help`, `!new`, `!status`, `!model`, `!clear`, `!compact`, `!version`
+- **Message content access**: Full message content with required intents
+- **File attachments**: Send files directly in Discord channels
+- **Message splitting**: Handles messages up to 2,000 characters
+- **User allowlists**: Restrict bot access to specific user IDs
+- **Server and DM support**: Works in both server channels and direct messages
+
+## Prerequisites
+
+Install the Discord channel dependencies:
+
+```bash
+uv pip install grip[channels-discord]
+```
+
+This installs `discord.py` (async native) for bot functionality.
+
+## Creating a Discord Bot
+
+<Steps>
+
+### Step 1: Create Discord Application
+
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
+2. Click "New Application"
+3. Enter a name for your bot (e.g., "Grip AI Bot")
+4. Click "Create"
+
+### Step 2: Create Bot User
+
+1. In your application, navigate to the "Bot" section in the left sidebar
+2. Click "Add Bot"
+3. Confirm by clicking "Yes, do it!"
+
+### Step 3: Configure Bot Permissions
+
+1. Under "Privileged Gateway Intents", enable:
+   - **Message Content Intent** (required to read message content)
+2. Under "Bot Permissions", select:
+   - Read Messages/View Channels
+   - Send Messages
+   - Attach Files
+   - Read Message History
+
+### Step 4: Copy Bot Token
+
+1. Under "TOKEN", click "Copy" to copy your bot token
+2. Save this token securely
+
+<Warning>
+Never share your bot token! Anyone with the token can control your bot. If you accidentally expose it, click "Regenerate" to get a new one.
+</Warning>
+
+### Step 5: Invite Bot to Server
+
+1. Navigate to "OAuth2" → "URL Generator" in the left sidebar
+2. Under "Scopes", select:
+   - `bot`
+3. Under "Bot Permissions", select:
+   - Read Messages/View Channels
+   - Send Messages
+   - Attach Files
+   - Read Message History
+4. Copy the generated URL at the bottom
+5. Open the URL in your browser and select a server to add the bot
+
+</Steps>
+
+## Configuration
+
+Add the Discord configuration to your `config.yaml`:
+
+```yaml
+channels:
+  discord:
+    enabled: true
+    token: "YOUR_DISCORD_BOT_TOKEN"
+```
+
+### Environment Variables
+
+For better security, use environment variables:
+
+```yaml
+channels:
+  discord:
+    enabled: true
+    token: "${DISCORD_BOT_TOKEN}"
+```
+
+Then set the environment variable:
+
+```bash
+export DISCORD_BOT_TOKEN="your-bot-token-here"
+```
+
+### User Allowlist
+
+Restrict bot access to specific users:
+
+```yaml
+channels:
+  discord:
+    enabled: true
+    token: "${DISCORD_BOT_TOKEN}"
+    allow_from:
+      - "123456789012345678"  # Your Discord user ID
+      - "876543210987654321"  # Another allowed user
+```
+
+<Note>
+To find your Discord user ID:
+1. Enable Developer Mode in Discord (User Settings → Advanced → Developer Mode)
+2. Right-click your username and select "Copy ID"
+</Note>
+
+If `allow_from` is empty or omitted, anyone in servers with the bot can use it.
+
+## Bot Commands
+
+The Discord bot supports these commands (defined in `channels/discord.py:22-30`). Commands can use either `!` or `/` prefix:
+
+### `!help` or `/help`
+
+Lists all available commands with descriptions.
+
+### `!new` or `/new`
+
+Starts a fresh conversation by clearing the session:
+
+```
+!new
+```
+
+### `!status` or `/status`
+
+Shows current session information:
+
+```
+!status
+```
+
+### `!model [name]` or `/model [name]`
+
+Shows the current model or switches to a different one:
+
+```
+!model
+```
+
+Shows current model.
+
+```
+!model gpt-4o
+```
+
+Switches to GPT-4.
+
+### `!clear` or `/clear`
+
+Clears the entire conversation history:
+
+```
+!clear
+```
+
+### `!compact` or `/compact`
+
+Summarizes and compresses the session history:
+
+```
+!compact
+```
+
+### `!version` or `/version`
+
+Shows the Grip AI version:
+
+```
+!version
+```
+
+## Message Handling
+
+The Discord channel processes all messages that meet these criteria (reference: `channels/discord.py:72-115`):
+
+1. **Not from the bot itself**: Ignores messages sent by the bot
+2. **Not from other bots**: Ignores messages from other bots
+3. **User is allowed**: Passes allowlist check (if configured)
+
+### Text Messages
+
+All non-command text messages are forwarded to the agent for processing.
+
+### Commands
+
+Messages starting with `!` or `/` are checked against the command list. If the command is recognized, it's processed as a command. Unknown commands are ignored and treated as regular messages.
+
+### Message Metadata
+
+Each message includes metadata:
+
+```python
+{
+    "message_id": "123456789",      # Discord message ID
+    "guild_id": "987654321",        # Server ID (empty for DMs)
+    "command": "model",             # Command name (if applicable)
+    "arg": "gpt-4o"                 # Command argument (if provided)
+}
+```
+
+## Sending Files from Agent
+
+The agent can send files to Discord channels. All files are sent as Discord attachments with optional captions.
+
+Implementation reference: `channels/discord.py:153-182`
+
+Example agent response with file:
+
+```python
+OutboundMessage(
+    channel="discord",
+    chat_id="123456789012345678",  # Channel ID
+    text="Here's the file you requested",
+    file_path="/path/to/file.pdf"
+)
+```
+
+The `text` field is sent as the message content, and the file is attached.
+
+## Message Length Limits
+
+Discord enforces a 2,000 character limit per message. Long responses are automatically split on newline boundaries when possible.
+
+Implementation: `channels/base.py:78-101`
+
+**Example**:
+```
+Long message (3000 chars)
+↓
+Chunk 1 (1900 chars)
+Chunk 2 (1100 chars)
+```
+
+Each chunk is sent as a separate message.
+
+## Channel and Guild IDs
+
+The Discord channel uses channel IDs (not names) for message routing:
+
+- **Server channels**: Use the channel ID where the message was sent
+- **Direct messages**: Use the DM channel ID
+
+The `guild_id` is included in metadata for server messages (empty for DMs).
+
+<Note>
+To find a channel ID:
+1. Enable Developer Mode in Discord (User Settings → Advanced → Developer Mode)
+2. Right-click a channel and select "Copy ID"
+</Note>
+
+## Connection Process
+
+The Discord channel uses an async connection process (reference: `channels/discord.py:46-125`):
+
+<Steps>
+
+### Step 1: Initialize client
+
+Creates a `discord.Client` with required intents:
+
+```python
+intents = discord.Intents.default()
+intents.message_content = True  # Required for reading messages
+```
+
+### Step 2: Start connection task
+
+Launches an async task that connects to Discord via WebSocket.
+
+### Step 3: Wait for ready event
+
+Waits up to 30 seconds for the bot to connect and become ready.
+
+### Step 4: Register event handlers
+
+Registers `on_ready` and `on_message` handlers for bot events.
+
+</Steps>
+
+## Error Handling
+
+The channel implements graceful error handling:
+
+**Connection timeout**: Raises error if bot doesn't connect within 30 seconds
+
+**Channel not found**: Attempts to fetch channel if not in cache
+
+**File not found**: Sends error message instead of file
+
+**Send failures**: Logs error and continues operation
+
+## Implementation Reference
+
+The Discord channel is implemented in `channels/discord.py`:
+
+- **Bot initialization**: `discord.py:46-63`
+- **Connection process**: `discord.py:117-125`
+- **Message handler**: `discord.py:72-115`
+- **Send methods**: `discord.py:136-182`
+- **Command list**: `discord.py:22-30`
+
+## Troubleshooting
+
+### Bot doesn't respond
+
+1. Check that the token is correct in your configuration
+2. Verify the bot is enabled: `channels.discord.enabled: true`
+3. Ensure "Message Content Intent" is enabled in the Developer Portal
+4. Check logs for connection errors
+5. Verify you're not blocked by the `allow_from` list
+
+### "discord.py not found" error
+
+Install the Discord channel dependencies:
+
+```bash
+uv pip install grip[channels-discord]
+```
+
+### Bot connects but can't read messages
+
+Enable "Message Content Intent" in the Discord Developer Portal:
+
+1. Go to your application in the [Developer Portal](https://discord.com/developers/applications)
+2. Navigate to "Bot"
+3. Under "Privileged Gateway Intents", enable "Message Content Intent"
+4. Restart your Grip AI instance
+
+### Connection timeout error
+
+This usually indicates:
+- Invalid bot token
+- Network connectivity issues
+- Discord API outage
+
+Check the token and network connection, then try again.
+
+### Bot responds to everyone (security concern)
+
+Add a user allowlist:
+
+```yaml
+channels:
+  discord:
+    enabled: true
+    token: "${DISCORD_BOT_TOKEN}"
+    allow_from:
+      - "YOUR_USER_ID"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Message Bus" icon="diagram-project" href="/channels/overview">
+    Learn how channels integrate with the message bus
+  </Card>
+  <Card title="Slack Setup" icon="slack" href="/channels/slack">
+    Set up a Slack bot using Socket Mode
+  </Card>
+</CardGroup>

@@ -1,0 +1,508 @@
+---
+title: "Tools"
+description: "Tool registry system, how tools work, tool execution flow, and creating custom tools"
+---
+
+## Overview
+
+Grip AI's tool system provides a unified abstraction for both built-in tools and MCP (Model Context Protocol) tools. Every tool implements the `Tool` ABC and is registered in a central `ToolRegistry`.
+
+The registry handles:
+- **Registration** — Add/remove tools at runtime
+- **Schema generation** — Export OpenAI function-calling definitions
+- **Execution dispatch** — Route tool calls to the correct implementation
+- **Result serialization** — Convert Pydantic models to JSON automatically
+
+## Tool Interface
+
+All tools implement this abstract base class:
+
+```python
+class Tool(ABC):
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Unique identifier used in tool_call function_name."""
+        ...
+
+    @property
+    @abstractmethod
+    def description(self) -> str:
+        """One-line description shown to the LLM."""
+        ...
+
+    @property
+    @abstractmethod
+    def parameters(self) -> dict[str, Any]:
+        """JSON Schema (type: object) describing accepted parameters."""
+        ...
+
+    @property
+    def category(self) -> str:
+        """Tool category for grouped display. Defaults to 'general'."""
+        return "general"
+
+    @abstractmethod
+    async def execute(self, params: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        """Run the tool with validated parameters and return a result.
+
+        Can return a plain string or a Pydantic BaseModel instance.
+        BaseModel instances are automatically serialized to JSON.
+        """
+        ...
+
+    def to_definition(self) -> dict[str, Any]:
+        """Serialize this tool to OpenAI function-calling schema format."""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
+            },
+        }
+```
+
+## Tool Context
+
+Every tool execution receives a `ToolContext` with runtime information:
+
+```python
+@dataclass
+class ToolContext:
+    workspace_path: Path
+    restrict_to_workspace: bool = False
+    shell_timeout: int = 60
+    session_key: str = ""
+    extra: dict[str, Any] = field(default_factory=dict)
+```
+
+The `extra` dict can contain:
+- `brave_api_key` — For web search tools
+- `dry_run` — Skip actual execution (testing mode)
+- `trust_manager` — For sandbox file access validation
+
+## Tool Registry
+
+The `ToolRegistry` manages all registered tools:
+
+```python
+class ToolRegistry:
+    def __init__(self) -> None:
+        self._tools: dict[str, Tool] = {}
+        self._category_cache: dict[str, list[Tool]] | None = None
+        self.mcp_manager: Any = None
+
+    def register(self, tool: Tool) -> None:
+        if tool.name in self._tools:
+            logger.warning("Overwriting existing tool registration: {}", tool.name)
+        self._tools[tool.name] = tool
+        self._category_cache = None
+        logger.debug("Registered tool: {}", tool.name)
+
+    def register_many(self, tools: list[Tool]) -> None:
+        for tool in tools:
+            self.register(tool)
+
+    def get_definitions(self) -> list[dict[str, Any]]:
+        """Return OpenAI function-calling definitions for all registered tools."""
+        return [tool.to_definition() for tool in self._tools.values()]
+
+    async def execute(self, name: str, params: dict[str, Any], ctx: ToolContext) -> str:
+        """Look up a tool by name and execute it.
+
+        Returns error string (not exception) if tool is not found or fails.
+        Pydantic BaseModel results are serialized to indented JSON automatically.
+        """
+        tool = self._tools.get(name)
+        if tool is None:
+            return f"Error: Unknown tool '{name}'. Available: {', '.join(self._tools.keys())}"
+
+        try:
+            result = await tool.execute(params, ctx)
+            return _serialize_result(result)
+        except Exception as exc:
+            logger.error("Unhandled error in tool {}: {}", name, exc, exc_info=True)
+            return f"Error executing {name}: {type(exc).__name__}: {exc}"
+```
+
+## Built-in Tools
+
+Grip includes tools across multiple categories:
+
+### Filesystem Tools
+
+- **read_file** — Read file contents with offset/limit
+- **write_file** — Write or overwrite file
+- **append_file** — Append to existing file
+- **list_directory** — List files and directories
+- **create_directory** — Create directory tree
+- **delete_file** — Remove file
+- **move_file** — Move or rename file
+- **search_files** — Glob pattern search
+- **grep_files** — Content search with regex
+
+### Shell Tools
+
+- **execute_command** — Run shell commands with timeout
+- **get_environment** — Read environment variables
+
+### Web Tools
+
+- **fetch_url** — HTTP GET with headers
+- **brave_search** — Web search via Brave API
+- **scrape_page** — Extract clean text from HTML
+
+### Messaging Tools
+
+- **send_message** — Send text to user via channel
+- **send_file** — Send file attachment
+
+### Orchestration Tools
+
+- **spawn_subagent** — Launch parallel agent tasks
+- **schedule_task** — Schedule cron jobs
+- **workflow_execute** — Run multi-step workflows
+
+### Finance Tools
+
+- **stock_quote** — Get stock price (requires yfinance)
+- **crypto_price** — Get cryptocurrency price
+
+### Research Tools
+
+- **research_topic** — Multi-source research with citations
+- **fact_check** — Verify claims against sources
+
+### Code Analysis Tools
+
+- **analyze_code** — Static analysis and metrics
+- **find_definition** — Locate class/function definitions
+- **trace_calls** — Build call graphs
+
+### Data Transform Tools
+
+- **convert_format** — CSV ↔ JSON ↔ YAML conversions
+- **filter_data** — Query JSON with JSONPath
+- **aggregate_data** — Sum, average, group-by operations
+
+### Document Generation Tools
+
+- **generate_markdown** — Create formatted markdown
+- **generate_pdf** — Convert markdown to PDF
+- **generate_diagram** — Create Mermaid diagrams
+
+### Email Tools
+
+- **compose_email** — Draft email with template
+- **send_email** — Send via SMTP (requires config)
+
+### Task Management Tools
+
+- **todo_write** — Create and update tasks
+- **todo_read** — List active tasks
+
+## Tool Execution Flow
+
+### 1. LLM Returns Tool Calls
+
+When the LLM decides to use tools, it returns:
+
+```json
+{
+  "content": "I'll search the codebase for the config file.",
+  "tool_calls": [
+    {
+      "id": "call_abc123",
+      "function_name": "search_files",
+      "arguments": {
+        "pattern": "**/config*.py",
+        "directory": "/workspace"
+      }
+    }
+  ]
+}
+```
+
+### 2. Parallel Tool Execution
+
+The agent loop executes all tool calls in parallel:
+
+```python
+# Execute all tool calls in parallel via asyncio.gather
+exec_results = await asyncio.gather(
+    *(self._execute_tool(tc, tool_ctx) for tc in response.tool_calls)
+)
+```
+
+### 3. Tool Invocation
+
+```python
+async def _execute_tool(self, tool_call: ToolCall, ctx: ToolContext) -> ToolExecutionResult:
+    args = tool_call.arguments if isinstance(tool_call.arguments, dict) else {}
+    logger.info(
+        "Executing tool: {}({})",
+        tool_call.function_name,
+        ", ".join(f"{k}={v!r}" for k, v in list(args.items())[:3]),
+    )
+
+    start = time.perf_counter()
+
+    # Prefer ToolRegistry
+    if self._registry:
+        output = await self._registry.execute(tool_call.function_name, args, ctx)
+        elapsed = (time.perf_counter() - start) * 1000
+        success = not output.startswith("Error:")
+        return ToolExecutionResult(
+            tool_call_id=tool_call.id,
+            tool_name=tool_call.function_name,
+            output=output,
+            success=success,
+            duration_ms=elapsed,
+        )
+```
+
+### 4. Result Scrubbing
+
+Secrets are redacted before appending to message history:
+
+```python
+for exec_result in exec_results:
+    all_tool_calls.append(exec_result.tool_name)
+    all_tool_details.append(
+        ToolCallDetail(
+            name=exec_result.tool_name,
+            success=exec_result.success,
+            duration_ms=exec_result.duration_ms,
+            output_preview=exec_result.output[:120],
+        )
+    )
+    # Scrub secrets before storing tool output in message history
+    scrubbed_output = _scrub_secrets(exec_result.output)
+    messages.append(
+        LLMMessage(
+            role="tool",
+            content=scrubbed_output,
+            tool_call_id=exec_result.tool_call_id,
+            name=exec_result.tool_name,
+        )
+    )
+```
+
+### 5. Loop Continues
+
+The agent loop sends tool results back to the LLM, which can:
+- Return final text response (loop ends)
+- Make more tool calls (loop continues)
+- Hit max_tool_iterations limit (forced completion)
+
+## Creating Custom Tools
+
+Example custom tool:
+
+```python
+from grip.tools.base import Tool, ToolContext, ToolResult
+from typing import Any
+
+class MyCustomTool(Tool):
+    @property
+    def name(self) -> str:
+        return "my_custom_tool"
+
+    @property
+    def description(self) -> str:
+        return "Does something custom and useful"
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "input_text": {
+                    "type": "string",
+                    "description": "The text to process",
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["json", "yaml", "xml"],
+                    "description": "Output format",
+                },
+            },
+            "required": ["input_text"],
+        }
+
+    @property
+    def category(self) -> str:
+        return "custom"
+
+    async def execute(self, params: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        input_text = params["input_text"]
+        format_type = params.get("format", "json")
+
+        # Your custom logic here
+        result = f"Processed {len(input_text)} chars in {format_type} format"
+
+        return result
+
+# Register the tool
+registry = create_default_registry()
+registry.register(MyCustomTool())
+```
+
+## MCP Tool Integration
+
+MCP servers provide additional tools via the MCP protocol:
+
+```python
+class MCPManager:
+    async def connect_all(
+        self, mcp_servers: dict[str, MCPServerConfig], registry: ToolRegistry
+    ) -> None:
+        for name, config in mcp_servers.items():
+            if not config.enabled:
+                continue
+
+            try:
+                # Connect to MCP server (stdio or SSE)
+                client = await self._connect_server(name, config)
+
+                # List available tools
+                tools_result = await client.list_tools()
+
+                # Register each tool as a dynamic tool in the registry
+                for tool_info in tools_result.tools:
+                    mcp_tool = MCPTool(
+                        server_name=name,
+                        tool_name=tool_info.name,
+                        description=tool_info.description,
+                        parameters=tool_info.inputSchema,
+                        client=client,
+                    )
+                    registry.register(mcp_tool)
+
+                logger.info(
+                    "Connected to MCP server '{}': {} tools",
+                    name,
+                    len(tools_result.tools),
+                )
+            except Exception as exc:
+                logger.error("Failed to connect to MCP server '{}': {}", name, exc)
+```
+
+MCP tools are registered with prefixed names: `mcp__server__tool`
+
+## Tool Categories
+
+Tools are grouped by category for system prompt generation:
+
+```python
+def get_tools_by_category(self) -> dict[str, list[Tool]]:
+    groups: dict[str, list[Tool]] = {}
+    for tool in self._tools.values():
+        groups.setdefault(tool.category, []).append(tool)
+    return groups
+```
+
+Valid categories:
+- `filesystem` — File I/O operations
+- `shell` — Command execution
+- `web` — HTTP requests and scraping
+- `messaging` — User communication
+- `orchestration` — Subagents, workflows, scheduling
+- `finance` — Stock/crypto data
+- `research` — Multi-source research
+- `code_analysis` — Static analysis
+- `data_transform` — Data format conversions
+- `document_gen` — Document creation
+- `general` — Uncategorized
+
+## Configuration
+
+```yaml
+tools:
+  # Built-in tool settings
+  restrict_to_workspace: true  # Sandbox file access
+  shell_timeout: 60  # Command timeout in seconds
+
+  # Web tools
+  web:
+    brave:
+      enabled: true
+      api_key: "your-brave-api-key"
+
+  # MCP servers
+  mcp_servers:
+    filesystem:
+      enabled: true
+      command: "uvx"
+      args: ["mcp-server-filesystem", "/workspace"]
+
+    fetch:
+      enabled: true
+      command: "uvx"
+      args: ["mcp-server-fetch"]
+      allowed_tools:
+        - "mcp__fetch__fetch"
+
+    memory:
+      enabled: true
+      url: "https://memory.example.com/sse"
+      type: "sse"
+      headers:
+        Authorization: "Bearer token"
+```
+
+## Tool Result Serialization
+
+Tools can return strings or Pydantic models:
+
+```python
+def _serialize_result(result: ToolResult) -> str:
+    if isinstance(result, str):
+        return result
+    if PydanticBaseModel is not None and isinstance(result, PydanticBaseModel):
+        return result.model_dump_json(indent=2)
+    if isinstance(result, (dict, list)):
+        return json.dumps(result, indent=2, default=str)
+    return str(result)
+```
+
+Example Pydantic result:
+
+```python
+from pydantic import BaseModel
+
+class SearchResult(BaseModel):
+    total_files: int
+    matches: list[str]
+    time_ms: float
+
+class SearchTool(Tool):
+    async def execute(self, params: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        # ... search logic ...
+        return SearchResult(
+            total_files=len(files),
+            matches=matching_files,
+            time_ms=elapsed,
+        )
+```
+
+The registry automatically serializes to JSON:
+
+```json
+{
+  "total_files": 142,
+  "matches": [
+    "/workspace/config.py",
+    "/workspace/settings/config.yaml"
+  ],
+  "time_ms": 234.5
+}
+```
+
+## Next Steps
+
+- Learn about [Memory management](/concepts/memory)
+- Configure [Session persistence](/concepts/sessions)
+- Explore [Agent lifecycle](/concepts/agents)
+- Understand [Dual-engine architecture](/concepts/engines)

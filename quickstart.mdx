@@ -1,80 +1,450 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: 'Quickstart'
+description: 'Get up and running with Grip AI in under 5 minutes'
 ---
 
-## Get started in three steps
+Get your first AI agent interaction up and running in minutes. This guide walks you through installation, setup, and your first conversation with Grip AI.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, make sure you have:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+- Python 3.12 or higher installed
+- [uv](https://docs.astral.sh/uv/) package manager
+- An Anthropic API key (for Claude Agent SDK) or an API key from another LLM provider
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Grip AI uses the **Claude Agent SDK** by default for the best agentic experience. You can also use LiteLLM engine for 15+ other providers (OpenAI, DeepSeek, Groq, Gemini, Ollama, etc.).
 </Note>
+
+## Installation
+
+<Steps>
+  <Step title="Install Grip AI">
+    Choose your preferred installation method:
+
+    <CodeGroup>
+      ```bash PyPI (Recommended)
+      # Using uv (faster)
+      uv tool install grip-ai
+
+      # Using pip
+      pip install grip-ai
+      ```
+
+      ```bash From Source
+      # Clone the repository
+      git clone https://github.com/5unnykum4r/grip-ai.git
+      cd grip-ai
+
+      # Install with uv
+      uv sync
+
+      # Register grip command globally
+      uv tool install --editable .
+      ```
+    </CodeGroup>
+
+    <Tip>
+      Installing from PyPI is the fastest way to get started. The source installation is useful for development or customization.
+    </Tip>
+  </Step>
+
+  <Step title="Run the onboarding wizard">
+    The interactive setup wizard configures everything you need:
+
+    ```bash
+    grip onboard
+    ```
+
+    The wizard will:
+    - Ask you to choose your engine: **Claude Agent SDK** (recommended) or **LiteLLM** (15+ providers)
+    - Prompt for your API key (Anthropic, OpenAI, or other provider)
+    - Help you select a default model
+    - Initialize the workspace at `~/.grip/workspace/`
+    - Test connectivity to ensure everything works
+
+    **Example interaction:**
+
+    ```
+    Welcome to Grip AI Setup!
+
+    Choose your engine:
+      1. Claude Agent SDK (recommended for Anthropic models)
+      2. LiteLLM (for OpenAI, DeepSeek, Groq, Gemini, Ollama, etc.)
+
+    Selection [1]: 1
+
+    Enter your Anthropic API key: sk-ant-...
+    Choose a model [claude-sonnet-4]: 
+
+    Testing connection... ✓
+    Workspace initialized at ~/.grip/workspace/
+
+    Setup complete! Try: grip agent
+    ```
+  </Step>
+
+  <Step title="Verify installation">
+    Test that Grip AI is ready:
+
+    ```bash
+    grip status
+    ```
+
+    You should see output confirming your configuration and workspace location.
+  </Step>
+</Steps>
+
+## Your First Conversation
+
+<Steps>
+  <Step title="Start interactive chat">
+    Launch the agent in interactive mode:
+
+    ```bash
+    grip agent
+    ```
+
+    You'll see a prompt where you can start chatting with the AI.
+  </Step>
+
+  <Step title="Try some commands">
+    <CodeGroup>
+      ```bash Ask a question
+      grip agent -m "What files are in my workspace?"
+      ```
+
+      ```bash Debug an error
+      cat error.log | grip agent -m "Fix this error"
+      ```
+
+      ```bash Multi-step task
+      grip agent -m "Create a Python script that fetches weather data and saves it to a CSV file"
+      ```
+    </CodeGroup>
+
+    The agent will use its built-in tools (file operations, shell execution, web search, etc.) to complete tasks autonomously.
+  </Step>
+</Steps>
+
+### Interactive Mode Commands
+
+When running `grip agent` in interactive mode, you have access to these slash commands:
+
+| Command | Description |
+|---------|-------------|
+| `/new` | Start a fresh conversation |
+| `/clear` | Clear conversation history |
+| `/undo` | Remove last exchange |
+| `/rewind N` | Rewind N exchanges |
+| `/compact` | Compress session history to save tokens |
+| `/copy` | Copy last response to clipboard |
+| `/model <name>` | Switch AI model (e.g., `/model openai/gpt-4o`) |
+| `/provider` | Show current provider details |
+| `/tasks` | Show scheduled cron tasks |
+| `/trust <path>` | Grant agent access to a directory |
+| `/trust revoke <path>` | Revoke agent access to a directory |
+| `/status` | Show session info (model, message count, memory) |
+| `/mcp` | List MCP servers |
+| `/doctor` | Run diagnostics |
+| `/help` | List all commands |
+| `/exit` | Exit grip |
+
+<Tip>
+  Use `/trust <path>` to grant the agent access to directories outside its workspace. By default, Grip AI is sandboxed to `~/.grip/workspace/` for security.
+</Tip>
+
+## Starting the Gateway
+
+The gateway is Grip AI's long-running process that connects everything — Telegram bots, Discord, Slack, cron jobs, the REST API, and more.
+
+<Steps>
+  <Step title="Launch the gateway">
+    ```bash
+    grip gateway
+    ```
+
+    You should see:
+
+    ```
+    Channels started: []
+    API server started: http://127.0.0.1:18800
+    grip gateway running. Press Ctrl+C to stop.
+    ```
+
+    <Note>
+      If you haven't configured any channels (Telegram, Discord, Slack), the gateway will still start the REST API on port 18800.
+    </Note>
+  </Step>
+
+  <Step title="Verify the API is running">
+    Test the health endpoint:
+
+    ```bash
+    curl http://localhost:18800/health
+    ```
+
+    You should get a success response:
+
+    ```json
+    {"status": "ok"}
+    ```
+  </Step>
+</Steps>
+
+## Testing the API
+
+The REST API requires authentication with a bearer token. On first run, Grip AI auto-generates a token and prints it to the console.
+
+<Steps>
+  <Step title="Find your API token">
+    When you first run `grip gateway` or `grip serve`, look for output like:
+
+    ```
+    Generated new API token: grip_abc123xyz...
+    Save this token — it won't be shown again.
+    ```
+
+    <Warning>
+      Save this token immediately. It won't be displayed again. You can regenerate it by deleting `~/.grip/config.json` and restarting, but this will reset your configuration.
+    </Warning>
+  </Step>
+
+  <Step title="Make an authenticated request">
+    Use the token to send a chat message:
+
+    ```bash
+    curl -X POST http://localhost:18800/api/v1/chat \
+      -H "Authorization: Bearer grip_YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"message": "Hello, what can you do?"}'
+    ```
+
+    The agent will respond with a JSON object containing its response.
+  </Step>
+
+  <Step title="Explore other endpoints">
+    <CodeGroup>
+      ```bash List available tools
+      curl -H "Authorization: Bearer grip_YOUR_TOKEN" \
+        http://localhost:18800/api/v1/tools
+      ```
+
+      ```bash Check system status
+      curl -H "Authorization: Bearer grip_YOUR_TOKEN" \
+        http://localhost:18800/api/v1/status
+      ```
+
+      ```bash View runtime metrics
+      curl -H "Authorization: Bearer grip_YOUR_TOKEN" \
+        http://localhost:18800/api/v1/metrics
+      ```
+
+      ```bash List sessions
+      curl -H "Authorization: Bearer grip_YOUR_TOKEN" \
+        http://localhost:18800/api/v1/sessions
+      ```
+    </CodeGroup>
+  </Step>
+</Steps>
+
+For a full list of API endpoints, see the [API Reference](/api/overview).
+
+## Common Tasks
+
+### Switch AI Models
+
+You can switch models at any time:
+
+```bash
+# In interactive mode
+/model openai/gpt-4o
+
+# Via config
+grip config set agents.defaults.model "openrouter/google/gemini-2.5-pro"
+
+# For a single request
+grip agent -m "Analyze this code" --model "anthropic/claude-sonnet-4"
+```
+
+### Grant Directory Access
+
+Grip AI is sandboxed to its workspace by default. To work with files outside `~/.grip/workspace/`, you must explicitly trust directories:
+
+```bash
+# In interactive mode
+/trust ~/Downloads
+
+# In CLI
+grip agent
+> /trust ~/projects/myapp
+```
+
+The agent will remember trusted directories across sessions. Learn more about Grip's security model in the [Security documentation](/configuration/security).
+
+### Set Up Telegram
+
+Connect Grip AI to Telegram for mobile access:
+
+<Steps>
+  <Step title="Create a bot with BotFather">
+    1. Open Telegram and search for [@BotFather](https://t.me/BotFather)
+    2. Send `/newbot` and follow the prompts
+    3. Copy the bot token (looks like `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`)
+  </Step>
+
+  <Step title="Configure Grip AI">
+    ```bash
+    grip config set channels.telegram.enabled true
+    grip config set channels.telegram.token "YOUR_BOT_TOKEN"
+    ```
+
+    **Optional:** Restrict the bot to specific Telegram user IDs for security:
+
+    ```bash
+    # Find your user ID by messaging @userinfobot
+    grip config set channels.telegram.allow_from '["YOUR_TELEGRAM_USER_ID"]'
+    ```
+  </Step>
+
+  <Step title="Start the gateway">
+    ```bash
+    grip gateway
+    ```
+
+    You should see:
+
+    ```
+    Channels started: telegram
+    API server started: http://127.0.0.1:18800
+    grip gateway running. Press Ctrl+C to stop.
+    ```
+  </Step>
+
+  <Step title="Chat with your bot">
+    Open Telegram, find your bot, and send `/start`. You can now chat with Grip AI from your phone!
+  </Step>
+</Steps>
+
+See the [Telegram Channel](/channels/telegram) documentation for more details.
+
+### Schedule Recurring Tasks
+
+Create cron jobs that run automatically:
+
+```bash
+# Daily standup reminder
+grip cron add "standup" "0 9 * * 1-5" "Remind the user: standup in 15 minutes"
+
+# Check disk usage every 6 hours
+grip cron add "disk-check" "0 */6 * * *" "Check disk usage and report if over 80%"
+
+# List all jobs
+grip cron list
+
+# Disable a job
+grip cron disable <job-id>
+```
+
+When you create a cron job while chatting via Telegram, the agent automatically sets `--reply-to` so results are delivered back to your chat.
+
+### Create Multi-Step Workflows
+
+For complex tasks, the agent automatically creates a task list using the `todo_write` tool. You can view active tasks:
+
+```bash
+# In interactive mode
+/tasks
+
+# Check the task file directly
+cat ~/.grip/workspace/tasks.json
+```
+
+The agent updates task statuses (`pending`, `in_progress`, `completed`) as it works, and the active task list is automatically injected into every prompt so it never loses track — even across long sessions with context compaction.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Command not found: grip">
+    **Solution:**
+
+    If you installed via `uv tool install`, make sure the uv bin directory is in your PATH:
+
+    ```bash
+    export PATH="$HOME/.local/bin:$PATH"
+    ```
+
+    Add this to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) to make it permanent.
+  </Accordion>
+
+  <Accordion title="API authentication failed">
+    **Solution:**
+
+    1. Make sure you're using the correct token from the initial gateway startup
+    2. Check that the `Authorization` header format is correct: `Bearer grip_YOUR_TOKEN`
+    3. Verify the token in your config: `grip config show | grep auth_token`
+  </Accordion>
+
+  <Accordion title="Agent can't access my files">
+    **Solution:**
+
+    Grip AI is sandboxed to `~/.grip/workspace/` by default. You need to explicitly trust directories:
+
+    ```bash
+    /trust /path/to/your/project
+    ```
+
+    View trusted directories with `/trust` (no arguments).
+  </Accordion>
+
+  <Accordion title="Gateway won't start (port in use)">
+    **Solution:**
+
+    If port 18800 is already in use, you can change it:
+
+    ```bash
+    grip config set gateway.port 18801
+    grip gateway
+    ```
+  </Accordion>
+
+  <Accordion title="Telegram bot not responding">
+    **Solution:**
+
+    1. Verify your bot token: `grip config show | grep telegram`
+    2. Check that Telegram is enabled: `grip config set channels.telegram.enabled true`
+    3. Restart the gateway: `grip gateway`
+    4. Check gateway logs for errors
+  </Accordion>
+
+  <Accordion title="Model not found or API error">
+    **Solution:**
+
+    1. Verify your API key is set correctly: `grip config show`
+    2. Check that you're using the correct model identifier for your provider
+    3. For Claude models, use `claude_sdk` engine (default)
+    4. For other providers, switch to `litellm` engine:
+
+    ```bash
+    grip config set agents.defaults.engine "litellm"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Channels" icon="comments" href="/channels/telegram">
+    Connect Grip AI to Telegram, Discord, or Slack
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore the full REST API
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Customize models, tools, and security settings
+  </Card>
+  <Card title="Security" icon="shield" href="/configuration/security">
+    Learn about Grip's security architecture
+  </Card>
+</CardGroup>

@@ -1,0 +1,277 @@
+---
+title: "Finance Tools"
+description: "Real-time stock quotes, historical data, and company fundamentals via yfinance"
+---
+
+## Overview
+
+Finance tools provide real-time stock market data, historical price charts, and company information powered by yfinance. Supports stocks, ETFs, mutual funds, and cryptocurrencies.
+
+## Installation
+
+Finance tools require the optional `finance` dependency group:
+
+```bash
+uv pip install 'grip[finance]'
+```
+
+If yfinance is not installed, tools return a helpful error message with install instructions.
+
+## Tools
+
+### stock_quote
+
+Get real-time stock quote with price, range, volume, and P/E ratio. Accepts comma-separated tickers.
+
+<ParamField path="symbols" type="string" required>
+  Ticker symbol(s), e.g. 'AAPL' or 'AAPL,MSFT,GOOGL'. Use '-USD' suffix for crypto (BTC-USD, ETH-USD).
+</ParamField>
+
+**Example:**
+```python
+result = await stock_quote(symbols="AAPL,MSFT,BTC-USD")
+```
+
+**Returns:**
+```
+--- AAPL ---
+  Price:      $178.45
+  Change:     +2.35 (+1.34%)
+  Day Range:  $176.10 - $179.20
+  52W Range:  $124.17 - $199.62
+  Volume:     52,341,234
+  Market Cap: $2.78T
+  P/E Ratio:  29.84
+
+--- MSFT ---
+  Price:      $412.78
+  Change:     -1.12 (-0.27%)
+  Day Range:  $410.50 - $415.30
+  52W Range:  $309.45 - $430.82
+  Volume:     23,456,789
+  Market Cap: $3.07T
+  P/E Ratio:  35.67
+
+--- BTC-USD ---
+  Price:      $64,234.12
+  Change:     +1,234.56 (+1.96%)
+  Day Range:  $62,890.00 - $64,890.00
+  52W Range:  $15,760.00 - $69,000.00
+  Volume:     15,234,567,890
+  Market Cap: N/A
+  P/E Ratio:  N/A
+```
+
+---
+
+### stock_history
+
+Get historical OHLCV (Open, High, Low, Close, Volume) data for a stock or crypto over a specified period.
+
+<ParamField path="symbol" type="string" required>
+  Ticker symbol, e.g. 'AAPL' or 'BTC-USD'
+</ParamField>
+
+<ParamField path="period" type="string">
+  Lookback period: 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max. Defaults to '1mo'.
+</ParamField>
+
+<ParamField path="interval" type="string">
+  Data granularity: 1m, 5m, 15m, 30m, 1h, 1d, 1wk, 1mo. Defaults to '1d'.
+</ParamField>
+
+<ParamField path="rows" type="integer">
+  Number of most recent rows to return. Defaults to 10.
+</ParamField>
+
+**Example:**
+```python
+result = await stock_history(
+    symbol="AAPL",
+    period="6mo",
+    interval="1wk",
+    rows=12
+)
+```
+
+**Returns:**
+```
+Historical data for AAPL (period=6mo, interval=1wk) — last 12 rows:
+
+                   Open    High     Low   Close      Volume
+Date
+2025-12-09   175.23  178.45  174.12  177.89  120453678
+2025-12-16   178.12  180.34  176.89  179.45  115678234
+2025-12-23   179.67  181.23  178.45  180.12  98234567
+2025-12-30   180.45  182.67  179.23  181.56  87654321
+...
+```
+
+**Valid periods:** 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max
+
+**Valid intervals:** 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
+
+---
+
+### company_info
+
+Get company fundamentals: sector, market cap, revenue, dividend yield, and analyst target price.
+
+<ParamField path="symbol" type="string" required>
+  Ticker symbol, e.g. 'MSFT' or 'NVDA'
+</ParamField>
+
+**Example:**
+```python
+result = await company_info(symbol="NVDA")
+```
+
+**Returns:**
+```
+=== NVIDIA Corporation (NVDA) ===
+Sector:          Technology
+Industry:        Semiconductors
+Country:         United States
+Employees:       26,196
+Market Cap:      $2.91T
+Revenue:         $60.92B
+Gross Margins:   64.8%
+Dividend Yield:  0.03%
+Analyst Rating:  BUY
+Price Target:    $950.00
+
+Description:
+NVIDIA Corporation provides graphics and compute and networking solutions.
+The company operates in two segments: Graphics and Compute & Networking.
+The Graphics segment offers GeForce GPUs for gaming and PCs...
+```
+
+---
+
+## Supported Assets
+
+### Stocks
+
+US and international stocks by ticker symbol:
+```python
+"AAPL"   # Apple Inc.
+"MSFT"   # Microsoft
+"GOOGL"  # Alphabet Class A
+"TSLA"   # Tesla
+"NVDA"   # NVIDIA
+```
+
+### ETFs
+
+```python
+"SPY"    # S&P 500 ETF
+"QQQ"    # Nasdaq-100 ETF
+"VTI"    # Total Stock Market ETF
+```
+
+### Cryptocurrencies
+
+Use `-USD` suffix:
+```python
+"BTC-USD"  # Bitcoin
+"ETH-USD"  # Ethereum
+"SOL-USD"  # Solana
+```
+
+### International Stocks
+
+Use market suffix:
+```python
+"NESN.SW"   # Nestle (Swiss Exchange)
+"7203.T"    # Toyota (Tokyo)
+"0700.HK"   # Tencent (Hong Kong)
+```
+
+---
+
+## Error Handling
+
+### yfinance Not Installed
+
+```python
+result = await stock_quote(symbols="AAPL")
+# Returns: "Error: yfinance is not installed. Run: uv pip install 'grip[finance]'"
+```
+
+### Invalid Ticker
+
+```python
+result = await stock_quote(symbols="INVALID")
+# Returns: "INVALID: No data found. Verify the ticker symbol."
+```
+
+### Invalid Period/Interval
+
+```python
+result = await stock_history(symbol="AAPL", period="3d")  # Invalid
+# Returns: "Error: Invalid period '3d'. Valid: 1d, 1mo, 1y, 2y, 3mo, 5d, 5y, 6mo, 10y, max, ytd"
+```
+
+### No Data Available
+
+```python
+result = await stock_history(symbol="AAPL", period="1d", interval="1m")
+# If market is closed:
+# Returns: "No historical data for AAPL (period=1d, interval=1m). Market may be closed or ticker may be invalid."
+```
+
+---
+
+## Rate Limits
+
+yfinance uses Yahoo Finance's public API which has informal rate limits:
+
+- **Recommended:** Batch multiple symbols in single `stock_quote` call
+- **Avoid:** Polling at high frequency (use max once per minute)
+- **Fallback:** If rate limited, wait 60 seconds before retrying
+
+**Good:**
+```python
+# Single call for 10 stocks
+result = await stock_quote(symbols="AAPL,MSFT,GOOGL,AMZN,TSLA,NVDA,META,NFLX,DIS,COST")
+```
+
+**Bad:**
+```python
+# 10 separate calls (inefficient, may hit rate limits)
+for symbol in ["AAPL", "MSFT", "GOOGL", ...]:
+    await stock_quote(symbols=symbol)
+```
+
+---
+
+## Best Practices
+
+1. **Batch ticker lookups** using comma-separated symbols in `stock_quote`
+2. **Use appropriate intervals** — 1m data only available for last 7 days
+3. **Handle market hours** — real-time data only during market hours (9:30am-4pm ET)
+4. **Check for N/A values** in returned data (not all fields available for all symbols)
+5. **Cache results** for repeated queries within the same session
+6. **Use longer periods** for historical analysis to avoid rate limits
+
+---
+
+## Limitations
+
+- **No real-time tick data** — quotes may be delayed up to 15 minutes
+- **No Level 2 data** — no bid/ask spreads or order book
+- **No options data** — stocks and ETFs only (no options chains)
+- **Market hours only** — real-time prices only when market is open
+- **Rate limits** — informal limits may cause temporary failures
+- **No futures** — does not support commodity or index futures
+
+---
+
+## Implementation
+
+Defined in `grip/tools/finance.py`. Uses:
+- `yfinance.Ticker()` for data fetching
+- `asyncio.to_thread()` to run blocking yfinance calls async
+- Human-readable formatting for market cap, volume, percentages
+- Graceful error handling for missing data fields
+- Optional dependency system (tools not loaded if yfinance unavailable)

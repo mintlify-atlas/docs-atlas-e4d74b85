@@ -1,0 +1,386 @@
+---
+title: "Engines"
+description: "Dual-engine architecture: Claude Agent SDK vs LiteLLM, when to use each, and how to switch"
+---
+
+## Overview
+
+Grip AI uses a **dual-engine architecture** that lets you choose between two execution backends:
+
+- **Claude Agent SDK** (primary) — Full agentic loop delegated to the Claude CLI
+- **LiteLLM** (fallback) — Internal agent loop supporting 100+ models via LiteLLM
+
+Both engines implement the same `EngineProtocol` interface, so switching between them requires zero code changes. The factory pattern automatically selects the appropriate engine based on your configuration.
+
+## Engine Protocol
+
+Both engines implement three core methods:
+
+```python
+class EngineProtocol(ABC):
+    async def run(
+        self,
+        user_message: str,
+        *,
+        session_key: str = "cli:default",
+        model: str | None = None,
+    ) -> AgentRunResult:
+        """Send a user message through the engine and return the result."""
+
+    async def consolidate_session(self, session_key: str) -> None:
+        """Summarise and compact conversation history for a session."""
+
+    async def reset_session(self, session_key: str) -> None:
+        """Clear all conversation history for a session."""
+```
+
+The `AgentRunResult` dataclass is unified across both engines:
+
+```python
+@dataclass
+class AgentRunResult:
+    response: str
+    iterations: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    tool_calls_made: list[str] = field(default_factory=list)
+    tool_details: list[ToolCallDetail] = field(default_factory=list)
+```
+
+## Claude Agent SDK Engine
+
+### Architecture
+
+The SDK engine (`SDKRunner`) delegates the full agentic loop to the Claude Agent SDK. Grip only provides:
+
+- System prompt assembly (identity files, memory, skills)
+- Custom tools (send_message, send_file, remember, recall)
+- MCP server configuration translation
+- History persistence via MemoryManager
+
+### When to Use
+
+<Note>
+Use the Claude SDK engine when:
+- You're using Claude models (claude-3-5-sonnet, claude-3-opus, etc.)
+- You want the latest Claude agentic capabilities
+- You need native computer use support
+- You prefer Claude's native tool execution loop
+</Note>
+
+### System Prompt Assembly
+
+The SDK engine builds prompts from multiple sources:
+
+```python
+def _build_system_prompt(
+    self, user_message: str, session_key: str, custom_tools: list | None = None,
+) -> str:
+    parts: list[str] = []
+
+    # Identity files (AGENT.md, IDENTITY.md, SOUL.md, USER.md)
+    identity_files = self._workspace.read_identity_files()
+    for filename, content in identity_files.items():
+        parts.append(f"## {filename}\n\n{content}")
+
+    # Search long-term memory for relevant facts
+    memory_results = self._memory_mgr.search_memory(user_message, max_results=5)
+    if memory_results:
+        memory_text = "\n".join(f"- {fact}" for fact in memory_results)
+        parts.append(f"## Relevant Memory\n\n{memory_text}")
+
+    # Search conversation history
+    history_results = self._memory_mgr.search_history(user_message, max_results=5)
+    if history_results:
+        history_text = "\n".join(f"- {entry}" for entry in history_results)
+        parts.append(f"## Relevant History\n\n{history_text}")
+
+    # Inject learned behavioral patterns from KnowledgeBase
+    if self._kb and self._kb.count > 0:
+        kb_context = self._kb.export_for_context(max_chars=800)
+        if kb_context:
+            parts.append(f"## Learned Patterns\n\n{kb_context}")
+
+    return "\n\n---\n\n".join(parts)
+```
+
+### Custom Tools
+
+The SDK engine exposes custom tools via in-process MCP server:
+
+- **send_message** — Route messages through gateway callbacks
+- **send_file** — Send files via configured channels
+- **remember** — Store facts in MEMORY.md
+- **recall** — Search long-term memory
+- **stock_quote** — (optional) Fetch stock prices if yfinance installed
+
+### MCP Server Translation
+
+Grip's MCP config format is translated to SDK-compatible format:
+
+```python
+def _build_mcp_config(self) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for name, srv in self._mcp_servers.items():
+        if not srv.enabled:
+            continue
+        if srv.url:
+            # URL-based server (SSE transport)
+            entry = {
+                "name": name,
+                "url": srv.url,
+                "headers": dict(srv.headers),
+            }
+            if srv.type:
+                entry["type"] = srv.type
+            result.append(entry)
+        elif srv.command:
+            # Stdio-based server
+            result.append({
+                "name": name,
+                "command": srv.command,
+                "args": list(srv.args),
+                "env": dict(srv.env),
+            })
+    return result
+```
+
+## LiteLLM Engine
+
+### Architecture
+
+The LiteLLM engine (`LiteLLMRunner`) wraps Grip's internal `AgentLoop` stack:
+
+1. `create_provider(config)` → LLM provider
+2. `create_default_registry(...)` → tool registry
+3. Optionally `SemanticCache(...)` if enabled in config
+4. `AgentLoop(...)` with all dependencies wired together
+
+### When to Use
+
+<Info>
+Use the LiteLLM engine when:
+- You need non-Claude models (GPT-4, Gemini, Mistral, local models, etc.)
+- You want full control over the agent loop
+- You need custom provider configurations
+- The Claude SDK is not installed or unavailable
+</Info>
+
+### Agent Loop
+
+The LiteLLM engine uses Grip's internal agent loop with:
+
+- **Iterative tool execution** — Loop until LLM returns text (no tool calls)
+- **Mid-run compaction** — Summarize old messages when context exceeds 50 messages
+- **Self-correction** — Inject reflection prompts when tools fail
+- **Cost-aware routing** — Use cheaper models for simple queries
+- **Semantic caching** — Cache identical queries to save tokens
+
+### Tool Registry
+
+The LiteLLM engine creates a full tool registry:
+
+```python
+# Build the tool registry with any configured MCP servers
+self._registry = create_default_registry(mcp_servers=config.tools.mcp_servers)
+
+# Optionally create a semantic cache for duplicate-query savings
+cache: SemanticCache | None = None
+defaults = config.agents.defaults
+if defaults.semantic_cache_enabled:
+    state_dir = defaults.workspace.expanduser().resolve() / "state"
+    cache = SemanticCache(
+        state_dir,
+        ttl_seconds=defaults.semantic_cache_ttl,
+        enabled=True,
+    )
+
+# Wire everything into the AgentLoop
+self._loop = AgentLoop(
+    config,
+    provider,
+    workspace,
+    tool_registry=self._registry,
+    session_manager=session_mgr,
+    memory_manager=memory_mgr,
+    semantic_cache=cache,
+    trust_manager=trust_mgr,
+    knowledge_base=knowledge_base,
+)
+```
+
+## Engine Factory
+
+The `create_engine` factory reads your config and returns the appropriate engine:
+
+```python
+def create_engine(
+    config: GripConfig,
+    workspace: WorkspaceManager,
+    session_mgr: SessionManager,
+    memory_mgr: MemoryManager,
+    *,
+    trust_mgr: TrustManager | None = None,
+) -> EngineProtocol:
+    kb = _create_knowledge_base(config)
+
+    engine_choice = config.agents.defaults.engine
+    engine: EngineProtocol
+
+    if engine_choice == "claude_sdk":
+        try:
+            sdk_runner_cls = _import_sdk_runner()
+            logger.info("Using Claude Agent SDK engine (SDKRunner).")
+            engine = sdk_runner_cls(
+                config=config,
+                workspace=workspace,
+                session_mgr=session_mgr,
+                memory_mgr=memory_mgr,
+                trust_mgr=trust_mgr,
+                knowledge_base=kb,
+            )
+        except ImportError:
+            logger.warning(
+                "claude_agent_sdk is not installed; falling back to LiteLLM engine. "
+                "Install it with: pip install claude-agent-sdk"
+            )
+            engine = _build_litellm_runner(
+                config, workspace, session_mgr, memory_mgr, trust_mgr, kb
+            )
+    else:
+        logger.info("Using LiteLLM engine (LiteLLMRunner).")
+        engine = _build_litellm_runner(config, workspace, session_mgr, memory_mgr, trust_mgr, kb)
+
+    # Wrap with behavioral learning (rule-based, zero LLM calls)
+    from grip.engines.learning import LearningEngine
+    from grip.memory.pattern_extractor import PatternExtractor
+
+    engine = LearningEngine(engine, kb, PatternExtractor())
+    logger.info("Behavioral pattern learning enabled.")
+
+    # Wrap with token tracking if daily limit is configured
+    max_daily = config.agents.defaults.max_daily_tokens
+    if max_daily > 0:
+        from grip.engines.tracked import TrackedEngine
+        from grip.security.token_tracker import TokenTracker
+
+        state_dir = config.agents.defaults.workspace.expanduser().resolve() / "state"
+        tracker = TokenTracker(state_dir, max_daily)
+        engine = TrackedEngine(engine, tracker)
+        logger.info("Token tracking enabled (daily limit: {})", max_daily)
+
+    return engine
+```
+
+## Switching Engines
+
+<Tabs>
+  <Tab title="Configuration File">
+    Edit your `grip.yml`:
+
+    ```yaml
+    agents:
+      defaults:
+        # Use Claude SDK engine
+        engine: claude_sdk
+        sdk_model: claude-3-5-sonnet-20241022
+        sdk_permission_mode: interactive
+
+        # OR use LiteLLM engine
+        engine: litellm
+        model: gpt-4o
+    ```
+  </Tab>
+
+  <Tab title="Environment Variable">
+    Override at runtime:
+
+    ```bash
+    # Use Claude SDK
+    GRIP_AGENTS__DEFAULTS__ENGINE=claude_sdk grip
+
+    # Use LiteLLM
+    GRIP_AGENTS__DEFAULTS__ENGINE=litellm grip
+    ```
+  </Tab>
+
+  <Tab title="CLI Flag">
+    Specify when launching:
+
+    ```bash
+    # Use Claude SDK with specific model
+    grip agent --engine claude_sdk --model claude-3-5-sonnet-20241022
+
+    # Use LiteLLM with GPT-4
+    grip agent --engine litellm --model gpt-4o
+    ```
+  </Tab>
+</Tabs>
+
+## Automatic Fallback
+
+If you configure `engine: claude_sdk` but the SDK package is not installed, Grip automatically falls back to LiteLLM:
+
+```
+WARNING: claude_agent_sdk is not installed; falling back to LiteLLM engine.
+         Install it with: pip install claude-agent-sdk
+```
+
+This ensures Grip always works even if optional dependencies are missing.
+
+## Engine Wrappers
+
+Both engines are wrapped with additional capabilities:
+
+### Learning Engine
+
+Extracts behavioral patterns from tool executions and stores them in the knowledge base (zero LLM calls, rule-based):
+
+```python
+engine = LearningEngine(engine, kb, PatternExtractor())
+```
+
+### Tracked Engine
+
+Enforces daily token limits:
+
+```python
+if config.agents.defaults.max_daily_tokens > 0:
+    tracker = TokenTracker(state_dir, max_daily_tokens)
+    engine = TrackedEngine(engine, tracker)
+```
+
+## Configuration Reference
+
+Key configuration options for engines:
+
+```yaml
+agents:
+  defaults:
+    # Engine selection
+    engine: claude_sdk  # or litellm
+
+    # Claude SDK settings
+    sdk_model: claude-3-5-sonnet-20241022
+    sdk_permission_mode: interactive  # or approve_all, deny_all
+
+    # LiteLLM settings
+    model: gpt-4o
+    temperature: 0.7
+    max_tokens: 4096
+    max_tool_iterations: 25  # 0 = unlimited
+
+    # Token tracking
+    max_daily_tokens: 1000000  # 0 = no limit
+
+    # Semantic cache (LiteLLM only)
+    semantic_cache_enabled: true
+    semantic_cache_ttl: 3600  # seconds
+```
+
+## Next Steps
+
+- Learn about [Agent lifecycle and profiles](/concepts/agents)
+- Understand the [Tool registry system](/concepts/tools)
+- Explore [Memory management](/concepts/memory)
+- Configure [Session persistence](/concepts/sessions)

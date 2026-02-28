@@ -1,0 +1,515 @@
+---
+title: MCP Servers
+description: Connect to Model Context Protocol servers via stdio and HTTP transports with 14 built-in presets and OAuth support
+---
+
+## Overview
+
+Grip AI implements the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) for seamless integration with external tools and services. MCP servers expose capabilities as tools that agents can invoke, from file systems and databases to APIs and cloud services.
+
+## Architecture
+
+The MCP integration consists of:
+
+1. **Transport layer** — stdio (subprocess) and HTTP/SSE connections
+2. **Tool discovery** — Automatic detection of server capabilities
+3. **Tool wrapping** — Converting MCP tools to Grip's Tool interface
+4. **OAuth support** — Token management and refresh for authenticated servers
+
+```python
+# From grip/tools/mcp.py:26-31
+class MCPWrappedTool(Tool):
+    """A grip Tool that delegates execution to an MCP server tool.
+    
+    Category defaults to 'mcp' but can be overridden per-server.
+    """
+```
+
+## Transports
+
+### stdio (Subprocess)
+
+Spawns a subprocess and communicates via stdin/stdout:
+
+```python
+# From grip/tools/mcp.py:177-204
+async def _connect_stdio(self) -> list[MCPWrappedTool]:
+    """Connect via stdio transport (spawn subprocess)."""
+    try:
+        from mcp import ClientSession
+        from mcp.client.stdio import StdioServerParameters, stdio_client
+        
+        params = StdioServerParameters(
+            command=self._config.command,
+            args=self._config.args,
+            env=self._config.env if self._config.env else None,
+        )
+        
+        self._transport_cm = stdio_client(params)
+        self._read_stream, self._write_stream = await self._transport_cm.__aenter__()
+        self._session = ClientSession(self._read_stream, self._write_stream)
+        await self._session.__aenter__()
+        await self._session.initialize()
+        
+        tools_response = await self._session.list_tools()
+        self._connected = True
+        self._error = ""
+        return self._wrap_tools(tools_response.tools)
+    
+    except Exception as exc:
+        self._connected = False
+        self._error = str(exc)
+        logger.error("Failed to connect stdio MCP '{}': {}", self.server_name, exc)
+        return []
+```
+
+**Configuration:**
+```yaml
+mcp_servers:
+  filesystem:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/"]
+    enabled: true
+```
+
+### HTTP/SSE
+
+Connects to HTTP endpoints with Server-Sent Events:
+
+```python
+# From grip/tools/mcp.py:206-269
+async def _connect_http(self) -> list[MCPWrappedTool]:
+    """Connect via HTTP (streamable) or SSE transport.
+    
+    Uses streamable HTTP transport when config.type == "http".
+    Falls back to SSE transport for type == "sse" or unspecified.
+    Automatically attaches OAuthClientProvider for servers that require
+    OAuth (e.g. Supabase with dynamic client registration). The provider
+    only activates on 401 responses — no-auth servers work normally.
+    """
+    try:
+        from mcp import ClientSession
+        
+        headers = self._config.headers if self._config.headers else None
+        timeout = float(self._config.timeout)
+        oauth_auth = self._build_oauth_auth()
+        
+        if self._config.type == "http":
+            from mcp.client.streamable_http import streamablehttp_client
+            
+            self._transport_cm = streamablehttp_client(
+                self._config.url,
+                headers=headers,
+                timeout=timeout,
+                auth=oauth_auth,
+            )
+            streams = await self._transport_cm.__aenter__()
+            self._read_stream = streams[0]
+            self._write_stream = streams[1]
+        else:
+            from mcp.client.sse import sse_client
+            
+            self._transport_cm = sse_client(
+                self._config.url,
+                headers=headers,
+                timeout=timeout,
+                auth=oauth_auth,
+            )
+            self._read_stream, self._write_stream = await self._transport_cm.__aenter__()
+        
+        self._session = ClientSession(self._read_stream, self._write_stream)
+        await self._session.__aenter__()
+        await self._session.initialize()
+        
+        tools_response = await self._session.list_tools()
+        self._connected = True
+        self._error = ""
+        return self._wrap_tools(tools_response.tools)
+    
+    except Exception as exc:
+        self._connected = False
+        exc_str = str(exc)
+        if "401" in exc_str or "Unauthorized" in exc_str:
+            self._error = "OAuth login required"
+            logger.warning(
+                "MCP '{}' requires authentication. Run: /mcp → select '{}' → Login",
+                self.server_name,
+                self.server_name,
+            )
+        else:
+            self._error = exc_str
+            logger.error("Failed to connect HTTP MCP '{}': {}", self.server_name, exc)
+        return []
+```
+
+**Configuration:**
+```yaml
+mcp_servers:
+  excalidraw:
+    url: https://mcp.excalidraw.com
+    type: sse
+    enabled: true
+```
+
+## Built-in Presets
+
+Grip AI includes 14 pre-configured MCP server presets:
+
+```python
+# From grip/cli/mcp_cmd.py:21-77
+MCP_PRESETS: dict[str, dict] = {
+    "todoist": {
+        "command": "npx",
+        "args": ["-y", "mcp-remote", "https://ai.todoist.net/mcp"],
+    },
+    "excalidraw": {
+        "url": "https://mcp.excalidraw.com",
+    },
+    "firecrawl": {
+        "command": "npx",
+        "args": ["-y", "firecrawl-mcp"],
+    },
+    "bluesky": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-bluesky"],
+    },
+    "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/"],
+    },
+    "git": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-git"],
+    },
+    "memory": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-memory"],
+    },
+    "postgres": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-postgres"],
+    },
+    "sqlite": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-sqlite"],
+    },
+    "fetch": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-fetch"],
+    },
+    "puppeteer": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-puppeteer"],
+    },
+    "stack": {
+        "command": "npx",
+        "args": ["-y", "mcp-remote", "mcp.stackoverflow.com"],
+    },
+    "tomba": {
+        "command": "npx",
+        "args": ["-y", "tomba-mcp-server"],
+    },
+    "supabase": {
+        "url": "https://mcp.supabase.com/mcp",
+        "type": "http",
+    },
+}
+```
+
+<Accordion title="Preset Details">
+- **todoist**: Task management and productivity
+- **excalidraw**: Diagram creation and collaboration
+- **firecrawl**: Web scraping and content extraction
+- **bluesky**: Social media posting and management
+- **filesystem**: File operations (read, write, search)
+- **git**: Git repository management
+- **memory**: Persistent key-value storage
+- **postgres**: PostgreSQL database queries
+- **sqlite**: SQLite database operations
+- **fetch**: HTTP requests and API calls
+- **puppeteer**: Browser automation
+- **stack**: Stack Overflow search and answers
+- **tomba**: Email finder and verification
+- **supabase**: Supabase database and auth
+</Accordion>
+
+## CLI Usage
+
+```bash
+# List available presets
+grip mcp presets
+
+# Add a preset
+grip mcp add todoist
+
+# Add custom server (stdio)
+grip mcp add myserver --command python --args "server.py,--port,8080"
+
+# Add custom server (HTTP)
+grip mcp add myserver --url https://api.example.com/mcp --type http
+
+# Add with headers
+grip mcp add myserver --url https://api.example.com/mcp --header "Authorization:Bearer token"
+
+# List configured servers
+grip mcp list
+
+# Remove a server
+grip mcp remove myserver
+
+# Login (for OAuth servers)
+grip mcp login supabase
+```
+
+## Tool Discovery
+
+When a server connects, Grip automatically discovers and wraps all exposed tools:
+
+```python
+# From grip/tools/mcp.py:303-324
+def _wrap_tools(self, mcp_tools) -> list[MCPWrappedTool]:
+    """Convert MCP tool definitions into grip Tool wrappers."""
+    self._tools = []
+    for tool in mcp_tools:
+        schema = (
+            tool.inputSchema
+            if hasattr(tool, "inputSchema")
+            else {"type": "object", "properties": {}}
+        )
+        wrapped = MCPWrappedTool(
+            tool_name=tool.name,
+            tool_description=getattr(tool, "description", tool.name),
+            tool_schema=schema,
+            server_name=self.server_name,
+            call_fn=self._call_tool,
+            mcp_loop=self._mcp_loop,
+        )
+        self._tools.append(wrapped)
+        logger.debug("Discovered MCP tool: {}.{}", self.server_name, tool.name)
+    
+    logger.info("MCP '{}': discovered {} tools", self.server_name, len(self._tools))
+    return self._tools
+```
+
+**Tool naming convention:**
+```
+mcp_{server_name}_{tool_name}
+```
+
+Example: `mcp_todoist_create_task`, `mcp_filesystem_read_file`
+
+## Tool Execution
+
+```python
+# From grip/tools/mcp.py:65-80
+async def execute(self, params: dict[str, Any], ctx: ToolContext) -> str:
+    try:
+        coro = self._call_fn(self._raw_name, params)
+        # The MCP session lives on a background thread with its own event
+        # loop. Schedule the coroutine there and await the future from the
+        # main loop to avoid cross-loop deadlocks.
+        if self._mcp_loop is not None and self._mcp_loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(coro, self._mcp_loop)
+            result = await asyncio.wrap_future(future)
+        else:
+            result = await coro
+        if isinstance(result, str):
+            return result
+        return json.dumps(result, indent=2, default=str)
+    except Exception as exc:
+        return f"Error calling MCP tool '{self._raw_name}' on '{self._server_name}': {exc}"
+```
+
+## OAuth Support
+
+Some MCP servers (like Supabase, Todoist) require OAuth authentication:
+
+```python
+# From grip/tools/mcp.py:138-175
+async def _ensure_oauth_token(self) -> None:
+    """Load OAuth token from store, refresh if expired, inject into headers."""
+    from grip.security.token_store import TokenStore
+    
+    store = TokenStore()
+    token = store.get(self.server_name)
+    
+    if token is None:
+        self._connected = False
+        self._error = "OAuth login required"
+        logger.warning(
+            "MCP '{}' requires OAuth login (no token found). "
+            "Run: grip mcp login {}",
+            self.server_name,
+            self.server_name,
+        )
+        return
+    
+    if token.is_expired and token.refresh_token:
+        try:
+            from grip.security.oauth import OAuthFlow
+            
+            flow = OAuthFlow(self._config.oauth, self.server_name)
+            token = await flow.refresh(token.refresh_token)
+            store.save(self.server_name, token)
+            logger.info("Refreshed OAuth token for MCP '{}'", self.server_name)
+        except Exception as exc:
+            self._connected = False
+            self._error = f"Token refresh failed: {exc}"
+            logger.error("Failed to refresh OAuth token for '{}': {}", self.server_name, exc)
+            return
+    elif token.is_expired:
+        self._connected = False
+        self._error = "OAuth token expired (no refresh token)"
+        logger.warning("OAuth token expired for MCP '{}' with no refresh token", self.server_name)
+        return
+    
+    self._config.headers["Authorization"] = f"Bearer {token.access_token}"
+```
+
+**OAuth flow:**
+1. Run `grip mcp login <server_name>`
+2. Browser opens for authorization
+3. Token stored in `~/.grip/tokens/<server_name>.json`
+4. Tokens auto-refresh when expired
+
+## Connection Management
+
+The MCPManager handles all server lifecycle:
+
+```python
+# From grip/tools/mcp.py:356-390
+async def connect_all(
+    self,
+    mcp_servers: dict[str, MCPServerConfig],
+    registry: ToolRegistry,
+) -> int:
+    """Connect to all configured MCP servers and register their tools.
+    
+    Returns the total number of MCP tools registered.
+    """
+    self._registry = registry
+    total_tools = 0
+    
+    # Capture the running event loop so wrapped tools can schedule
+    # coroutines back onto it from the main thread.
+    mcp_loop = asyncio.get_running_loop()
+    
+    for server_name, server_config in mcp_servers.items():
+        if not server_config.enabled:
+            logger.info("MCP '{}' is disabled, skipping", server_name)
+            continue
+        conn = MCPConnection(server_name, server_config)
+        conn._mcp_loop = mcp_loop
+        tools = await conn.connect()
+        self._connections[server_name] = conn
+        
+        for tool in tools:
+            registry.register(tool)
+            total_tools += 1
+    
+    if total_tools:
+        n = len(self._connections)
+        label = "server" if n == 1 else "servers"
+        logger.info("Discovered and registered {} tools from {} MCP {}", total_tools, n, label)
+    return total_tools
+```
+
+## Configuration
+
+```yaml
+# config.yaml
+mcp_servers:
+  filesystem:
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+      - "/path/to/workspace"
+    enabled: true
+  
+  todoist:
+    command: npx
+    args:
+      - "-y"
+      - "mcp-remote"
+      - "https://ai.todoist.net/mcp"
+    oauth:
+      client_id: "your-client-id"
+      client_secret: "your-client-secret"
+      auth_url: "https://todoist.com/oauth/authorize"
+      token_url: "https://todoist.com/oauth/access_token"
+      scopes: ["data:read_write"]
+    enabled: true
+  
+  supabase:
+    url: https://mcp.supabase.com/mcp
+    type: http
+    headers:
+      X-API-Key: "your-api-key"
+    enabled: true
+```
+
+## Error Handling
+
+<Accordion title="Connection Failures">
+When a server fails to connect:
+
+```python
+# From grip/tools/mcp.py:256-269
+except Exception as exc:
+    self._connected = False
+    exc_str = str(exc)
+    if "401" in exc_str or "Unauthorized" in exc_str:
+        self._error = "OAuth login required"
+        logger.warning(
+            "MCP '{}' requires authentication. Run: /mcp → select '{}' → Login",
+            self.server_name,
+            self.server_name,
+        )
+    else:
+        self._error = exc_str
+        logger.error("Failed to connect HTTP MCP '{}': {}", self.server_name, exc)
+    return []
+```
+
+Grip continues startup with remaining servers.
+</Accordion>
+
+<Accordion title="Tool Execution Errors">
+```python
+# From grip/tools/mcp.py:79-80
+except Exception as exc:
+    return f"Error calling MCP tool '{self._raw_name}' on '{self._server_name}': {exc}"
+```
+
+Errors are returned as strings to the agent for handling.
+</Accordion>
+
+## Best Practices
+
+<Accordion title="Server Selection">
+- Use stdio for local tools (filesystem, git, sqlite)
+- Use HTTP for remote services (APIs, cloud platforms)
+- Enable only servers you actively use (reduces startup time)
+- Test servers individually before adding to workflows
+</Accordion>
+
+<Accordion title="OAuth Management">
+- Store tokens securely (never commit to git)
+- Set up token refresh to avoid manual re-login
+- Use environment variables for client secrets
+- Rotate tokens periodically
+</Accordion>
+
+<Accordion title="Performance">
+- Stdio servers spawn processes (higher overhead)
+- HTTP servers share connection pools (lower overhead)
+- Disable unused servers to reduce memory footprint
+- Monitor connection health via logs
+</Accordion>
+
+## Related Features
+
+- [Skills](/features/skills) — Specialized agent knowledge
+- [Workflows](/features/workflows) — Orchestrate MCP tool usage
+- [Scheduling](/features/scheduling) — Periodic MCP server interactions

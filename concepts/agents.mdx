@@ -1,0 +1,486 @@
+---
+title: "Agents"
+description: "Agent lifecycle, profiles, system prompts, context management, and execution flow"
+---
+
+## Overview
+
+Grip AI's agent system orchestrates the iterative cycle of:
+
+1. **Build context** — Assemble system prompt from identity files, memory, skills
+2. **Call LLM** — Send conversation + tool definitions to the model
+3. **Execute tools** — If LLM returns tool_calls, execute them in parallel
+4. **Repeat** — Loop until LLM returns plain text or max iterations reached
+5. **Persist** — Save conversation history and consolidate memory
+
+Agents are powered by the **AgentLoop** (for LiteLLM engine) or **ClaudeSDKClient** (for Claude SDK engine), with the same high-level orchestration pattern.
+
+## Agent Loop Architecture
+
+### Core Components
+
+The `AgentLoop` integrates multiple subsystems:
+
+```python
+class AgentLoop:
+    def __init__(
+        self,
+        config: GripConfig,
+        provider: LLMProvider,
+        workspace: WorkspaceManager,
+        *,
+        tool_registry: ToolRegistry | None = None,
+        session_manager: SessionManager | None = None,
+        memory_manager: MemoryManager | None = None,
+        semantic_cache: SemanticCache | None = None,
+        trust_manager: Any | None = None,
+        knowledge_base: Any | None = None,
+    ) -> None:
+        self._config = config
+        self._provider = provider
+        self._workspace = workspace
+        self._context_builder = ContextBuilder(workspace, channels=config.channels)
+        self._registry = tool_registry
+        self._session_mgr = session_manager
+        self._memory_mgr = memory_manager
+        self._semantic_cache = semantic_cache
+        self._trust_manager = trust_manager
+        self._kb = knowledge_base
+```
+
+### Execution Flow
+
+The main `run()` method implements the agentic loop:
+
+```python
+async def run(
+    self,
+    user_message: str,
+    *,
+    session_key: str = "cli:default",
+    session_messages: list[LLMMessage] | None = None,
+    model: str | None = None,
+) -> AgentRunResult:
+    # 1. Cost-aware model routing
+    if model:
+        effective_model = model
+    elif self._config.agents.model_tiers.enabled:
+        complexity = classify_complexity(user_message, tool_calls_in_session=...)
+        effective_model = select_model(defaults.model, tiers, complexity)
+    else:
+        effective_model = defaults.model
+
+    # 2. Check semantic cache for identical recent query
+    if self._semantic_cache:
+        cached = self._semantic_cache.get(user_message, effective_model)
+        if cached is not None:
+            return AgentRunResult(response=cached, iterations=0, ...)
+
+    # 3. Load session history (limited to memory_window)
+    if self._session_mgr:
+        session = self._session_mgr.get_or_create(session_key)
+        history = session.get_recent(immediate_window)
+        session_summary = session.summary
+    else:
+        history = []
+
+    # 4. Build system message with context
+    system_msg = self._context_builder.build_system_message(
+        user_message=user_message,
+        session_key=session_key,
+    )
+
+    # 5. Assemble message list
+    messages: list[LLMMessage] = [system_msg]
+    if session_summary:
+        messages.append(LLMMessage(role="system", content=session_summary))
+    if self._memory_mgr:
+        relevant_context = self._retrieve_relevant_context(user_message)
+        if relevant_context:
+            messages.append(LLMMessage(role="system", content=relevant_context))
+    messages.extend(history)
+    messages.append(LLMMessage(role="user", content=user_message))
+
+    # 6. Tool execution loop
+    iteration = 0
+    while True:
+        iteration += 1
+        if max_iter > 0 and iteration > max_iter:
+            break
+
+        # Mid-run compaction to prevent context overflow
+        if iteration > 1:
+            messages = await self._maybe_compact_mid_run(messages, effective_model)
+
+        # Call LLM
+        response = await self._call_llm(messages, tools=tools, model=effective_model, ...)
+
+        # No tool calls → return final response
+        if not response.tool_calls:
+            self._persist_session(session, user_message, response.content)
+            if self._semantic_cache and not all_tool_calls:
+                self._semantic_cache.put(user_message, effective_model, response.content)
+            return AgentRunResult(response=response.content, iterations=iteration, ...)
+
+        # Execute tools in parallel
+        messages.append(LLMMessage(role="assistant", content=response.content, tool_calls=response.tool_calls))
+        exec_results = await asyncio.gather(
+            *(self._execute_tool(tc, tool_ctx) for tc in response.tool_calls)
+        )
+
+        # Append tool results to messages
+        for exec_result in exec_results:
+            scrubbed_output = _scrub_secrets(exec_result.output)
+            messages.append(LLMMessage(
+                role="tool",
+                content=scrubbed_output,
+                tool_call_id=exec_result.tool_call_id,
+                name=exec_result.tool_name,
+            ))
+
+        # Self-correction: inject reflection prompt if tools failed
+        if failed_tools and defaults.enable_self_correction:
+            messages.append(LLMMessage(
+                role="system",
+                content=f"[Self-correction] The following tool calls failed: ..."
+            ))
+```
+
+## System Prompt Assembly
+
+The `ContextBuilder` assembles the system prompt from multiple sources:
+
+### Identity Files
+
+Read from workspace root:
+
+- **AGENT.md** — Agent personality and capabilities
+- **IDENTITY.md** — Core identity and values
+- **SOUL.md** — Emotional intelligence and tone
+- **USER.md** — User preferences and context
+- **SHIELD.md** — Security policies and threat evaluation rules
+
+```python
+def _build_identity_section(self) -> str:
+    identity_files = self._workspace.read_identity_files()
+    sections: list[str] = []
+
+    for filename in ("AGENT.md", "IDENTITY.md", "SOUL.md", "USER.md", "SHIELD.md"):
+        content = identity_files.get(filename)
+        if content and content.strip():
+            sections.append(content.strip())
+
+    return "\n\n".join(sections)
+```
+
+### Skills Listing
+
+Compact name + description only (full content loaded on-demand):
+
+```python
+def _build_skills_listing(self) -> str:
+    loader = SkillsLoader(self._workspace.root)
+    skills = loader.scan()
+
+    if not skills:
+        return ""
+
+    lines = ["## Available Skills\n"]
+    for s in skills:
+        desc = f": {s.description}" if s.description else ""
+        lines.append(f"- **{s.name}**{desc}")
+    lines.append("\nUse the read_file tool to load a skill's full instructions when needed.")
+    return "\n".join(lines)
+```
+
+### Active Tasks
+
+Read from `workspace/tasks.json` (pending/in_progress only):
+
+```python
+def _build_todos_section(self) -> str:
+    tasks_path = self._workspace.root / "tasks.json"
+    if not tasks_path.exists():
+        return ""
+
+    todos = json.loads(tasks_path.read_text())
+    active = [t for t in todos if t.get("status") in ("pending", "in_progress")]
+
+    if not active:
+        return ""
+
+    lines = [f"## Active Tasks ({len(active)} remaining)\n"]
+    for t in active:
+        icon = "○" if t.get("status") == "pending" else "◑"
+        lines.append(f"{icon} [{t['id']}] {t['content']} — {t.get('status')}")
+    return "\n".join(lines)
+```
+
+### Tone Adaptation
+
+Detect user sentiment and inject adaptive tone hints:
+
+```python
+def _detect_tone_hint(user_message: str) -> str:
+    frustrated = bool(_FRUSTRATION_PATTERNS.search(user_message))
+    has_error = bool(_ERROR_PATTERNS.search(user_message))
+    brainstorming = bool(_BRAINSTORM_PATTERNS.search(user_message))
+
+    if frustrated and has_error:
+        return (
+            "## Tone Adaptation\n\n"
+            "The user seems frustrated with an error. "
+            "Be calm, precise, and surgical. Lead with the fix, not explanations."
+        )
+    if brainstorming:
+        return (
+            "## Tone Adaptation\n\n"
+            "The user is brainstorming. Be expansive and creative. "
+            "Suggest multiple approaches, trade-offs, and alternatives."
+        )
+    return ""
+```
+
+### Runtime Metadata
+
+Current datetime, platform, version, connected channels:
+
+```python
+@staticmethod
+def _build_metadata_section(session_key: str = "", channels: ChannelsConfig | None = None) -> str:
+    now = datetime.now(UTC)
+    lines = [
+        "## Runtime Info\n",
+        f"- Current UTC time: {now.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"- Platform: {platform.system()} {platform.release()}",
+        f"- Python: {platform.python_version()}",
+        f"- grip version: {__version__}",
+    ]
+    if session_key:
+        lines.append(f"- Session key: {session_key}")
+
+    if channels:
+        connected: list[str] = []
+        for ch_name in ("telegram", "discord", "slack"):
+            ch = getattr(channels, ch_name, None)
+            if ch and ch.enabled and ch.token and ch.token.get_secret_value():
+                ids = ", ".join(str(i) for i in ch.allow_from) if ch.allow_from else "unknown"
+                connected.append(f"{ch_name} (chat_id: {ids})")
+        if connected:
+            lines.append("- Connected channels: " + "; ".join(connected))
+
+    return "\n".join(lines)
+```
+
+## Cost-Aware Model Routing
+
+Grip can automatically select cheaper models for simple queries:
+
+```python
+class ComplexityTier(StrEnum):
+    LOW = "low"      # Greetings, simple lookups
+    MEDIUM = "medium" # Code tasks, multi-step work
+    HIGH = "high"     # Architecture, refactors, debugging
+
+def classify_complexity(
+    message: str,
+    *,
+    tool_calls_in_session: int = 0,
+    message_count_in_session: int = 0,
+) -> ComplexityTier:
+    # Check for high-complexity keywords
+    for pattern in _HIGH_COMPLEXITY_PATTERNS:
+        if pattern.search(message):
+            return ComplexityTier.HIGH
+
+    # Short messages with simple signals → LOW
+    if len(message) < 200:
+        for pattern in _LOW_COMPLEXITY_PATTERNS:
+            if pattern.search(message):
+                return ComplexityTier.LOW
+
+    # Session depth signals
+    if tool_calls_in_session > 10 or message_count_in_session > 30:
+        return ComplexityTier.HIGH
+
+    # Message length heuristics
+    if len(message) > 2000:
+        return ComplexityTier.HIGH
+
+    if len(message) < 100:
+        return ComplexityTier.LOW
+
+    return ComplexityTier.MEDIUM
+```
+
+Configuration:
+
+```yaml
+agents:
+  defaults:
+    model: gpt-4o  # Default model
+
+  model_tiers:
+    enabled: true
+    low: gpt-4o-mini       # Fast + cheap for simple tasks
+    medium: gpt-4o         # Balanced for most work
+    high: o1-preview       # Premium for complex reasoning
+```
+
+## Mid-Run Compaction
+
+When in-flight messages exceed 50, older messages are summarized:
+
+```python
+async def _maybe_compact_mid_run(
+    self, messages: list[LLMMessage], model: str
+) -> list[LLMMessage]:
+    system_msgs = [m for m in messages if m.role == "system"]
+    conv_msgs = [m for m in messages if m.role != "system"]
+
+    if len(conv_msgs) <= _COMPACT_THRESHOLD:  # 50
+        return messages
+
+    to_summarize = conv_msgs[:-_COMPACT_KEEP_RECENT]  # Keep last 20
+    to_keep = conv_msgs[-_COMPACT_KEEP_RECENT:]
+
+    # Summarize older messages via LLM
+    history_text = "\n".join(f"[{m.role}]: {(m.content or '')[:500]}" for m in to_summarize)
+    summary_prompt = [
+        LLMMessage(
+            role="system",
+            content=(
+                "You are a summarizer for an AI agent's in-progress task history. "
+                "Summarize the following conversation and tool execution history concisely."
+            ),
+        ),
+        LLMMessage(role="user", content=f"Conversation to summarize:\n\n{history_text}"),
+    ]
+
+    response = await self._call_llm(
+        summary_prompt,
+        tools=None,
+        model=consolidation_model,
+        temperature=0.3,
+        max_tokens=1024,
+    )
+    summary = response.content or "Previous task history (compacted)."
+
+    summary_msg = LLMMessage(
+        role="system",
+        content=f"[Mid-run context compaction — earlier history summary]\n{summary}",
+    )
+    return system_msgs + [summary_msg] + to_keep
+```
+
+## Self-Correction
+
+When tools fail, inject reflection prompts:
+
+```python
+if failed_tools and defaults.enable_self_correction:
+    failure_summary = "; ".join(failed_tools)
+    messages.append(
+        LLMMessage(
+            role="system",
+            content=(
+                f"[Self-correction] The following tool calls failed: {failure_summary}. "
+                "Before proceeding, analyze what went wrong and adjust your approach. "
+                "Consider: wrong arguments, missing prerequisites, or alternative tools."
+            ),
+        )
+    )
+```
+
+## Credential Scrubbing
+
+Secrets are redacted before storing in message history:
+
+```python
+_SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(sk-[A-Za-z0-9]{20,})", re.IGNORECASE), "[REDACTED_API_KEY]"),
+    (re.compile(r"(ghp_[A-Za-z0-9]{36,})", re.IGNORECASE), "[REDACTED_GH_TOKEN]"),
+    (re.compile(r"(xox[baprs]-[0-9A-Za-z\-]{10,})", re.IGNORECASE), "[REDACTED_SLACK_TOKEN]"),
+    (re.compile(r"(Bearer\s+)[A-Za-z0-9\-_.~+/]{20,}=*", re.IGNORECASE), r"\1[REDACTED_TOKEN]"),
+]
+
+def _scrub_secrets(text: str) -> str:
+    for pattern, replacement in _SECRET_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+```
+
+## Agent Profiles
+
+### CLI Agent
+
+Default interactive agent for terminal usage:
+
+```bash
+grip agent
+```
+
+Session key: `cli:default`
+
+### Channel Agents
+
+Channel-specific agents with per-user sessions:
+
+- **Telegram**: `telegram:123456789`
+- **Discord**: `discord:987654321`
+- **Slack**: `slack:U123ABC`
+
+Each channel user gets isolated conversation history.
+
+### Subagents
+
+Spawned agents for parallel task execution:
+
+```python
+await spawn_tools.spawn_subagent(
+    task="Analyze the codebase structure",
+    context={"directory": "/path/to/repo"},
+    session_key="subagent:analysis-1",
+)
+```
+
+Subagents inherit parent workspace but have isolated sessions.
+
+## Configuration Reference
+
+```yaml
+agents:
+  defaults:
+    # Model selection
+    model: gpt-4o
+    temperature: 0.7
+    max_tokens: 4096
+
+    # Execution limits
+    max_tool_iterations: 25  # 0 = unlimited
+    max_daily_tokens: 1000000  # 0 = no limit
+
+    # Memory settings
+    memory_window: 10  # Recent messages to keep in context
+    auto_consolidate: true  # Auto-consolidate when window exceeded
+    consolidation_model: gpt-4o-mini  # Cheaper model for consolidation
+
+    # Features
+    enable_self_correction: true
+    semantic_cache_enabled: true
+    semantic_cache_ttl: 3600
+
+  # Cost-aware routing
+  model_tiers:
+    enabled: true
+    low: gpt-4o-mini
+    medium: gpt-4o
+    high: o1-preview
+```
+
+## Next Steps
+
+- Learn about the [Tool registry system](/concepts/tools)
+- Understand [Memory management](/concepts/memory)
+- Configure [Session persistence](/concepts/sessions)
+- Explore [Dual-engine architecture](/concepts/engines)
