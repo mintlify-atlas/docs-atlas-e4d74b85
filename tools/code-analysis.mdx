@@ -1,0 +1,201 @@
+---
+title: "Code Analysis"
+description: "AST-based static analysis for Python files with complexity metrics, dependency graphs, and structure analysis"
+---
+
+## Overview
+
+The code analysis tool performs static analysis on Python source files using the built-in `ast` module. It computes cyclomatic complexity, categorizes imports into stdlib/third-party/local, and analyzes code structure metrics like nesting depth and function sizes.
+
+## Tool
+
+### code_analysis
+
+Perform AST-based static analysis on Python files to compute complexity, dependencies, or structure metrics.
+
+<ParamField path="path" type="string" required>
+  File or directory path to analyze. Relative paths resolve from workspace.
+</ParamField>
+
+<ParamField path="analysis_type" type="string" required>
+  Type of analysis to perform. Options: `complexity`, `dependencies`, `structure`.
+</ParamField>
+
+**Example:**
+```python
+result = await code_analysis(
+    path="src/main.py",
+    analysis_type="complexity"
+)
+```
+
+---
+
+## Analysis Types
+
+### complexity
+
+Computes cyclomatic complexity for every function and method in the file.
+
+**Metrics computed:**
+- Decision points per function (if/elif/for/while/except/and/or)
+- Average complexity across all functions
+- Total complexity score
+- Lines of code per function
+
+**Example:**
+```python
+result = await code_analysis(
+    path="src/processing.py",
+    analysis_type="complexity"
+)
+```
+
+**Returns:**
+```markdown
+## Complexity Analysis: src/processing.py
+
+File lines: 312
+Functions: 15
+Average complexity: 4.2
+Total complexity: 63
+
+| Function | Line | Complexity | Lines |
+|----------|------|------------|-------|
+| process_data | 45 | 12 | 38 |
+| validate_input | 89 | 8 | 24 |
+| transform_records | 120 | 6 | 19 |
+```
+
+**Complexity guidelines:**
+- **1-5:** Simple, easy to test
+- **6-10:** Moderate complexity, acceptable
+- **11-20:** High complexity, consider refactoring
+- **21+:** Very high complexity, definitely refactor
+
+---
+
+### dependencies
+
+Analyzes import statements and categorizes them into stdlib, third-party, and local modules.
+
+**Categories:**
+- **stdlib:** Built-in Python standard library modules
+- **third_party:** External packages from PyPI
+- **local:** Relative imports from the same project
+
+**Example:**
+```python
+result = await code_analysis(
+    path="src/api/handler.py",
+    analysis_type="dependencies"
+)
+```
+
+**Returns:**
+```markdown
+## Dependencies Analysis: src/api/handler.py
+
+**stdlib** (7): ast, collections, contextlib, json, pathlib, sys, typing
+**third_party** (3): flask, pydantic, requests
+**local** (2): config, utils
+```
+
+---
+
+### structure
+
+Analyzes code organization with class/function counts, size distribution, and nesting depth.
+
+**Metrics computed:**
+- Total classes and functions
+- Maximum nesting depth of control structures
+- Average, largest, and smallest function sizes
+
+**Example:**
+```python
+result = await code_analysis(
+    path="src/models",
+    analysis_type="structure"
+)
+```
+
+**Returns:**
+```markdown
+## Structure Analysis: src/models/user.py
+
+- File Lines: 245
+- Class Count: 3
+- Function Count: 18
+- Max Nesting Depth: 4
+- Avg Function Size: 12.3
+- Largest Function: 42
+- Smallest Function: 3
+```
+
+---
+
+## Multi-File Analysis
+
+When analyzing a directory, the tool processes up to 50 Python files and returns analysis for each.
+
+**Example:**
+```python
+result = await code_analysis(
+    path="src/tools",
+    analysis_type="complexity"
+)
+```
+
+**Returns:**
+```markdown
+Analyzed 12 Python files (complexity)
+
+## Complexity Analysis: src/tools/code_analysis.py
+[...]
+
+---
+
+## Complexity Analysis: src/tools/data_transform.py
+[...]
+```
+
+---
+
+## Error Handling
+
+**Syntax errors** are reported without crashing:
+```markdown
+## src/broken.py: SyntaxError at line 42
+```
+
+**Non-Python files** are rejected:
+```
+Error: code_analysis only supports Python (.py) files.
+```
+
+**Missing paths** are caught:
+```
+Error: path 'nonexistent.py' does not exist.
+```
+
+---
+
+## Use Cases
+
+1. **Code review:** Identify overly complex functions before PR merge
+2. **Refactoring:** Find high-complexity hotspots that need simplification
+3. **Dependency audit:** Track third-party dependencies and import patterns
+4. **Architecture analysis:** Understand code structure and organization
+5. **Onboarding:** Generate quick overviews of unfamiliar codebases
+
+---
+
+## Implementation
+
+Defined in `grip/tools/code_analysis.py` at code_analysis.py:213. Uses:
+- Python's built-in `ast` module (zero external dependencies)
+- Cyclomatic complexity calculation via AST traversal
+- Stdlib detection using `sys.stdlib_module_names`
+- Recursive nesting depth analysis
+- Limited to 50 files per directory to prevent performance issues

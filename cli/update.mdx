@@ -1,0 +1,524 @@
+---
+title: "grip update"
+description: "Pull the latest Grip AI source code and re-sync dependencies for git-based installations"
+---
+
+## Overview
+
+The `grip update` command automatically updates your Grip AI installation by pulling the latest source code from git and re-syncing dependencies. This command only works for git-based installations.
+
+## Usage
+
+```bash
+grip update [OPTIONS]
+```
+
+## What It Does
+
+The update process performs two main steps:
+
+1. **Pull latest source** - Runs `git pull --ff-only` to safely update code
+2. **Sync dependencies** - Runs `uv sync` or `pip install -e .` to update packages
+
+## Basic Update
+
+Run without options to perform a full update:
+
+```bash
+$ grip update
+
+Updating grip from /home/user/grip
+Pulling latest changes...
+Updating abc123..def456
+Fast-forward
+ src/grip/agent.py | 15 +++++++++------
+ src/grip/tools.py | 8 +++++---
+ 2 files changed, 14 insertions(+), 9 deletions(-)
+
+Syncing dependencies...
+Dependencies synced.
+
+grip updated successfully.
+```
+
+## Options
+
+### --skip-deps
+
+Pull source code only, skip dependency synchronization:
+
+```bash
+grip update --skip-deps
+```
+
+**Example:**
+
+```bash
+$ grip update --skip-deps
+
+Updating grip from /home/user/grip
+Pulling latest changes...
+Already up to date.
+
+Skipping dependency sync (--skip-deps)
+
+grip updated successfully.
+```
+
+**Use when:**
+- Dependencies haven't changed
+- You want faster updates
+- You'll sync dependencies manually later
+
+## Update Process
+
+### Step 1: Git Pull
+
+Runs `git pull --ff-only` to safely update:
+
+```bash
+Pulling latest changes...
+Updating abc123..def456
+Fast-forward
+ src/grip/agent.py | 15 +++++++++------
+ README.md         | 3 ++-
+ 2 files changed, 11 insertions(+), 7 deletions(-)
+```
+
+**Safety features:**
+- `--ff-only` flag prevents merge conflicts
+- Refuses to update if local changes exist
+- Shows changed files and line counts
+
+### Step 2: Dependency Sync
+
+Updates Python packages:
+
+**With uv (preferred):**
+```bash
+Syncing dependencies...
+Resolving dependencies...
+Installing packages...
+Dependencies synced.
+```
+
+**Fallback to pip:**
+```bash
+Syncing dependencies...
+uv not available, trying pip...
+Installing in editable mode...
+Dependencies synced.
+```
+
+## Installation Type Detection
+
+### Git-Based Installation
+
+Update works when installed via git:
+
+```bash
+$ git clone https://github.com/anomalylabs/grip.git
+$ cd grip
+$ pip install -e .
+
+# Later, update:
+$ grip update
+grip updated successfully.
+```
+
+### Package Installation
+
+Update fails for pip/pipx installations:
+
+```bash
+$ grip update
+
+Error: grip was not installed via git. Cannot auto-update.
+Expected git repo at: /usr/local/lib/python3.11/site-packages/grip
+```
+
+**For package installations, use:**
+```bash
+pip install --upgrade grip
+# or
+pipx upgrade grip
+```
+
+## Update Scenarios
+
+### No Updates Available
+
+```bash
+$ grip update
+
+Updating grip from /home/user/grip
+Pulling latest changes...
+Already up to date.
+
+Syncing dependencies...
+Dependencies synced.
+
+grip updated successfully.
+```
+
+### New Version Available
+
+```bash
+$ grip update
+
+Updating grip from /home/user/grip
+Pulling latest changes...
+Updating v1.0.0..v1.1.0
+Fast-forward
+ src/grip/agent.py    | 25 ++++++++++++++++++++++---
+ src/grip/tools.py    | 12 ++++++------
+ pyproject.toml       | 2 +-
+ 3 files changed, 29 insertions(+), 10 deletions(-)
+
+Syncing dependencies...
+Resolved 45 packages in 1.2s
+Installed 3 packages
+Dependencies synced.
+
+grip updated successfully.
+```
+
+### Local Changes Exist
+
+```bash
+$ grip update
+
+Updating grip from /home/user/grip
+Pulling latest changes...
+git pull failed:
+fatal: Not possible to fast-forward, aborting.
+
+Hint: You may have local changes.
+Commit or stash them first, then retry.
+```
+
+**Solution:**
+
+```bash
+# View changes
+git status
+git diff
+
+# Option 1: Stash changes
+git stash
+grip update
+git stash pop
+
+# Option 2: Commit changes
+git add .
+git commit -m "Local modifications"
+grip update
+
+# Option 3: Discard changes (careful!)
+git reset --hard
+grip update
+```
+
+## Dependency Management
+
+### Using uv (Recommended)
+
+Fastest dependency sync with uv:
+
+```bash
+$ grip update
+
+Syncing dependencies...
+Resolved 42 packages in 0.8s
+Installed 2 packages in 1.1s
+Dependencies synced.
+```
+
+**Install uv:**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### Using pip (Fallback)
+
+Automatic fallback if uv not available:
+
+```bash
+$ grip update
+
+Syncing dependencies...
+uv not available, trying pip...
+Obtaining file:///home/user/grip
+Installing collected packages: grip
+  Running setup.py develop for grip
+Dependencies synced.
+```
+
+### Skip Dependency Sync
+
+Manual dependency management:
+
+```bash
+# Update source only
+grip update --skip-deps
+
+# Sync dependencies later
+cd /path/to/grip
+uv sync
+# or
+pip install -e .
+```
+
+## Version Information
+
+Check current version before updating:
+
+```bash
+$ grip --version
+grip version 1.0.0
+
+$ grip update
+grip updated successfully.
+
+$ grip --version
+grip version 1.1.0
+```
+
+## Update Frequency
+
+### Recommended Schedule
+
+**Weekly updates:**
+```bash
+# Add to crontab
+0 9 * * 1 cd ~/grip && git pull --ff-only && uv sync
+```
+
+**Before important work:**
+```bash
+grip update
+grip status
+grip agent -m "test"
+```
+
+**After bug reports:**
+```bash
+# Check GitHub releases
+curl -s https://api.github.com/repos/anomalylabs/grip/releases/latest
+
+# Update if new version
+grip update
+```
+
+## Troubleshooting
+
+### Not a Git Repository
+
+```bash
+$ grip update
+
+Error: grip was not installed via git. Cannot auto-update.
+Expected git repo at: /usr/local/lib/python3.11/site-packages/grip
+```
+
+**Solution:**
+
+```bash
+# For pip installations
+pip install --upgrade grip
+
+# For pipx installations
+pipx upgrade grip
+
+# Switch to git installation
+pip uninstall grip
+git clone https://github.com/anomalylabs/grip.git
+cd grip
+pip install -e .
+```
+
+### Merge Conflicts
+
+```bash
+$ grip update
+
+git pull failed:
+fatal: Not possible to fast-forward, aborting.
+```
+
+**Solution:**
+
+```bash
+cd /path/to/grip
+
+# View status
+git status
+
+# Stash local changes
+git stash
+
+# Update
+grip update
+
+# Restore changes
+git stash pop
+
+# Resolve any conflicts
+git diff
+```
+
+### Dependency Sync Failed
+
+```bash
+$ grip update
+
+Dependency sync failed:
+ERROR: Could not find a version that satisfies the requirement...
+```
+
+**Solution:**
+
+```bash
+# Update pip/uv
+pip install --upgrade pip
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Try again
+grip update
+
+# Manual sync if needed
+cd /path/to/grip
+pip install -e . --force-reinstall
+```
+
+### Permission Denied
+
+```bash
+$ grip update
+
+Permission denied: /usr/local/lib/python3.11/site-packages
+```
+
+**Solution:**
+
+```bash
+# Use user installation
+pip install --user -e .
+
+# Or use virtual environment
+python -m venv venv
+source venv/bin/activate
+pip install -e .
+```
+
+## Manual Update Process
+
+If `grip update` fails, update manually:
+
+```bash
+# Navigate to grip directory
+cd /path/to/grip
+
+# Pull latest changes
+git pull --ff-only
+
+# Sync dependencies with uv
+uv sync
+
+# Or with pip
+pip install -e .
+
+# Verify update
+grip --version
+grip status
+```
+
+## Post-Update Checks
+
+### Verify Installation
+
+```bash
+$ grip update
+grip updated successfully.
+
+$ grip --version
+grip version 1.1.0
+
+$ grip status
+╭─ grip Status ────────────────────╮
+│  Provider  OpenAI (gpt-4o)       │
+│  Workspace Initialized           │
+╰──────────────────────────────────╯
+```
+
+### Test Basic Functionality
+
+```bash
+# Test agent
+grip agent -m "What time is it?"
+
+# Test config
+grip config show
+
+# Run diagnostics
+grip agent
+> /doctor
+```
+
+### Check Configuration
+
+```bash
+# Config should persist through updates
+grip config show
+
+# Workspace should be unchanged
+ls -la ~/grip/workspace
+```
+
+## Rollback
+
+If update causes issues, rollback:
+
+```bash
+# View recent commits
+cd /path/to/grip
+git log --oneline -5
+
+# Rollback to previous version
+git checkout abc123
+
+# Sync dependencies
+uv sync
+
+# Test
+grip agent -m "test"
+
+# If good, stay on this version
+# If bad, move forward
+git checkout main
+```
+
+## Development Updates
+
+For development branches:
+
+```bash
+# Switch to dev branch
+cd /path/to/grip
+git checkout develop
+
+# Update dev branch
+grip update
+
+# Or update specific branch
+git checkout feature/new-tool
+git pull origin feature/new-tool
+uv sync
+```
+
+## Related Commands
+
+- **[grip status](/cli/status)** - Verify system after update
+- **[grip config](/cli/config)** - Check configuration
+- **[grip agent](/cli/agent)** - Test agent functionality
+- **[grip onboard](/cli/onboard)** - Reconfigure if needed

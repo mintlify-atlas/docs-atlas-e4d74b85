@@ -1,0 +1,322 @@
+---
+title: "Document Generation"
+description: "Template-based document creation with built-in templates for reports, READMEs, changelogs, and meeting notes"
+---
+
+## Overview
+
+The document generation tool creates structured documents from built-in templates with variable substitution. Templates include report, readme, changelog, meeting_notes, and custom freeform. Supports markdown and HTML output formats.
+
+## Tool
+
+### document_gen
+
+Generate a document from a template with variable substitution.
+
+<ParamField path="template" type="string" required>
+  Built-in template name. Options: `report`, `readme`, `changelog`, `meeting_notes`, `custom`.
+</ParamField>
+
+<ParamField path="variables" type="object" required>
+  Key-value pairs for template variable substitution. Variables are inserted using `{key}` placeholders.
+</ParamField>
+
+<ParamField path="output_format" type="string">
+  Output format: `markdown` (default) or `html`.
+</ParamField>
+
+<ParamField path="output_file" type="string">
+  Optional file path to save the document. If omitted, returns document content.
+</ParamField>
+
+**Example:**
+```python
+result = await document_gen(
+    template="report",
+    variables={
+        "title": "Q4 Performance Report",
+        "author": "Analytics Team",
+        "summary": "Revenue increased 23% over Q3.",
+        "details": "Strong growth in enterprise segment...",
+        "conclusions": "Continue current strategy."
+    },
+    output_format="markdown",
+    output_file="reports/q4_performance.md"
+)
+```
+
+---
+
+## Built-in Templates
+
+### report
+
+Professional report template with executive summary, details, and conclusions.
+
+**Required variables:**
+- `title`: Report title
+- `author`: Report author
+- `summary`: Executive summary
+- `details`: Main content/findings
+- `conclusions`: Final conclusions or recommendations
+
+**Optional variables:**
+- `date`: Report date (auto-generated if omitted)
+
+**Example:**
+```python
+result = await document_gen(
+    template="report",
+    variables={
+        "title": "Security Audit Report",
+        "author": "InfoSec Team",
+        "date": "2026-02-28",
+        "summary": "Conducted comprehensive security audit of API endpoints.",
+        "details": "Tested 42 endpoints across 3 services. Found 2 critical issues...",
+        "conclusions": "All critical issues resolved. Recommend quarterly audits."
+    }
+)
+```
+
+---
+
+### readme
+
+Project README template with installation, usage, and license sections.
+
+**Required variables:**
+- `project_name`: Project name
+- `description`: Project description
+- `install_command`: Installation command (e.g., `pip install myproject`)
+- `usage`: Usage instructions or examples
+- `license`: License type
+
+**Example:**
+```python
+result = await document_gen(
+    template="readme",
+    variables={
+        "project_name": "DataFlow",
+        "description": "A powerful ETL pipeline framework for Python.",
+        "install_command": "pip install dataflow",
+        "usage": "from dataflow import Pipeline\n\npipeline = Pipeline()\npipeline.run()",
+        "license": "MIT"
+    },
+    output_file="README.md"
+)
+```
+
+---
+
+### changelog
+
+Changelog entry template following Keep a Changelog format.
+
+**Required variables:**
+- `version`: Version number (e.g., `1.2.0`)
+- `added`: New features (markdown list)
+- `changed`: Changes to existing features (markdown list)
+- `fixed`: Bug fixes (markdown list)
+
+**Optional variables:**
+- `date`: Release date (auto-generated if omitted)
+
+**Example:**
+```python
+result = await document_gen(
+    template="changelog",
+    variables={
+        "version": "2.1.0",
+        "date": "2026-02-28",
+        "added": "- New data export feature\n- API rate limiting",
+        "changed": "- Improved error messages\n- Updated dependencies",
+        "fixed": "- Fixed memory leak in parser\n- Resolved timezone bug"
+    },
+    output_file="CHANGELOG.md"
+)
+```
+
+---
+
+### meeting_notes
+
+Meeting notes template with attendees, agenda, discussion, and action items.
+
+**Required variables:**
+- `title`: Meeting title
+- `attendees`: List of attendees
+- `agenda`: Meeting agenda
+- `discussion`: Discussion summary
+- `action_items`: Action items with owners
+
+**Optional variables:**
+- `date`: Meeting date (auto-generated if omitted)
+
+**Example:**
+```python
+result = await document_gen(
+    template="meeting_notes",
+    variables={
+        "title": "Sprint Planning",
+        "date": "2026-02-28",
+        "attendees": "Alice, Bob, Carol, Dave",
+        "agenda": "- Review backlog\n- Estimate stories\n- Assign tasks",
+        "discussion": "Team reviewed 15 stories. Consensus on priorities.",
+        "action_items": "- Alice: Create API design doc (by Mar 1)\n- Bob: Set up CI pipeline (by Mar 3)"
+    },
+    output_file="meetings/2026-02-28-sprint-planning.md"
+)
+```
+
+---
+
+### custom
+
+Freeform template with a single `content` variable.
+
+**Required variables:**
+- `content`: Document content
+
+**Example:**
+```python
+result = await document_gen(
+    template="custom",
+    variables={
+        "content": "# My Custom Document\n\nThis is custom content."
+    }
+)
+```
+
+---
+
+## Variable Substitution
+
+Variables are substituted using `{key}` placeholders:
+
+```python
+template: "# {title}\n\n{content}"
+variables: {"title": "Hello", "content": "World"}
+output: "# Hello\n\nWorld"
+```
+
+**Auto-generated variables:**
+- `date`: Current date in `YYYY-MM-DD` format (if not provided)
+
+**Unmatched placeholders** are left as-is:
+```python
+template: "Hello {name}, welcome to {place}!"
+variables: {"name": "Alice"}
+output: "Hello Alice, welcome to {place}!"
+```
+
+---
+
+## Output Formats
+
+### markdown (default)
+
+Returns the document as markdown text.
+
+**Example:**
+```python
+result = await document_gen(
+    template="report",
+    variables={...},
+    output_format="markdown"
+)
+```
+
+### html
+
+Converts markdown to HTML with minimal styling. Includes:
+- Responsive layout (max-width 800px, centered)
+- Syntax highlighting for code blocks
+- Basic typography styles
+
+**Markdown features supported:**
+- Headings (`#`, `##`, `###`)
+- Bold (`**text**`)
+- Italic (`*text*`)
+- Inline code (`` `code` ``)
+- Code blocks (` ``` `)
+- Lists (`-` or `*`)
+
+**Example:**
+```python
+result = await document_gen(
+    template="readme",
+    variables={...},
+    output_format="html",
+    output_file="docs/index.html"
+)
+```
+
+---
+
+## Return Values
+
+**With output_file:**
+```
+Document saved to reports/q4_performance.md
+
+# Q4 Performance Report
+
+**Author:** Analytics Team
+**Date:** 2026-02-28
+
+## Executive Summary
+
+Revenue increased 23% over Q3.
+[...truncated at 2000 chars]
+```
+
+**Without output_file:**
+```
+# Q4 Performance Report
+
+**Author:** Analytics Team
+**Date:** 2026-02-28
+
+## Executive Summary
+
+Revenue increased 23% over Q3.
+
+## Details
+
+Strong growth in enterprise segment...
+
+## Conclusions
+
+Continue current strategy.
+```
+
+---
+
+## Use Cases
+
+1. **Project documentation:** Generate README files for new projects
+2. **Release management:** Create changelog entries for version releases
+3. **Reporting:** Generate consistent report formats
+4. **Meeting documentation:** Standardize meeting notes across teams
+5. **Documentation export:** Convert markdown docs to HTML for web publishing
+
+---
+
+## Best Practices
+
+1. **Use markdown formatting in variables** for rich content (lists, bold, code)
+2. **Provide all required variables** to avoid placeholder gaps
+3. **Choose HTML output** for web publishing or email
+4. **Store templates in version control** when extending with custom templates
+5. **Auto-generate dates** by omitting the `date` variable
+
+---
+
+## Implementation
+
+Defined in `grip/tools/document_gen.py` at document_gen.py:123. Uses:
+- String-based template storage with `{key}` placeholders
+- Simple variable substitution with `str.replace()`
+- Minimal markdown-to-HTML conversion (no external dependencies)
+- Auto-generated dates with `datetime.now(UTC)`
+- Parent directory creation for output files

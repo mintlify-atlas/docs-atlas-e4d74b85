@@ -1,0 +1,535 @@
+---
+title: "grip onboard"
+description: "Interactive setup wizard for configuring Grip AI with provider, API key, model selection, and workspace initialization"
+---
+
+## Overview
+
+The `grip onboard` command launches an interactive setup wizard that walks you through configuring Grip AI from scratch. It handles provider selection, API key entry, model choice, workspace initialization, and automatic connectivity verification.
+
+## Usage
+
+```bash
+grip onboard
+```
+
+## What It Configures
+
+The wizard guides you through:
+
+1. **Provider Selection** - Choose between Claude Agent SDK or multi-provider LLM support
+2. **API Key Entry** - Secure credential configuration
+3. **Model Selection** - Pick your preferred model with fuzzy search
+4. **Telegram Integration** - Optional bot setup for chat access
+5. **File Access Mode** - Configure workspace security settings
+6. **Workspace Initialization** - Create and verify workspace directory
+7. **Connection Testing** - Automatic verification of chat and tool calling
+
+## Setup Process
+
+### Step 1: Provider Selection
+
+Choose your LLM provider using arrow keys:
+
+```
+Step 1/6: Choose your LLM provider
+
+❯ Anthropic — Claude Agent SDK (Recommended)
+  OpenRouter
+  OpenAI
+  Anthropic
+  DeepSeek
+  Groq
+  Google Gemini
+  Ollama (Local)
+  Other Models (Local / OpenAI Compatible)
+```
+
+**Available options:**
+
+- **Claude Agent SDK** - Recommended for advanced features (computer use, agents)
+- **Cloud providers** - OpenRouter, OpenAI, Anthropic, DeepSeek, Groq, Gemini, Qwen, Minimax, Moonshot, Ollama Cloud
+- **Local models** - Ollama, Llama.cpp, LM Studio
+- **Custom OpenAI-compatible** - Any compatible API endpoint
+
+### Step 2: API Key Configuration
+
+Enter your API credentials securely:
+
+```
+Step 2/6: Configure API key
+
+╭────────────────────────────────────────╮
+│ Enter your Anthropic API key          │
+│ Environment variable: ANTHROPIC_API_KEY│
+╰────────────────────────────────────────╯
+
+API key: ••••••••••••••••••••••••••••••••
+```
+
+**Security features:**
+- Input is masked during entry
+- Keys are stored securely in config
+- Environment variables take precedence
+- Local models skip this step
+
+### Step 3: Model Selection
+
+Choose your default model with fuzzy search:
+
+```
+Step 3/6: Choose a default model
+
+Search or select model:
+❯ claude-sonnet-4-6
+  claude-opus-4-6
+  claude-haiku-4-5-20251001
+  Enter custom model name...
+```
+
+**Features:**
+- Type to search available models
+- Arrow keys to navigate
+- Pre-configured model lists per provider
+- Custom model name support
+
+### Step 4: Telegram Integration (Optional)
+
+Connect a Telegram bot for chat access:
+
+```
+Step 4/6: Connect Telegram bot
+
+╭────────────────────────────────────────╮
+│ Chat with your AI agent from Telegram  │
+│                                        │
+│ To create a bot:                       │
+│   1. Open Telegram → @BotFather        │
+│   2. Send /newbot and follow steps     │
+│   3. Copy your bot token               │
+│   4. Message @userinfobot for user ID  │
+╰────────────────────────────────────────╯
+
+Set up Telegram now? Yes
+
+Bot token: ••••••••••••••••••••
+Your Telegram user ID: 123456789
+
+✓ Telegram configured!
+```
+
+**Skipping Telegram:**
+
+```
+Set up Telegram now? No
+
+Skipped. Set up later with:
+  grip config set channels.telegram.enabled true
+```
+
+<Note>
+  Only your Telegram user ID will be able to use the bot. This prevents unauthorized access.
+</Note>
+
+### Step 5: File Access Mode
+
+Configure workspace security:
+
+```
+Step 5/6: Configure file access mode
+
+Choose file access mode:
+❯ Ask before accessing (recommended)
+  Trust all directories
+  Workspace only (restricted)
+```
+
+**Access modes:**
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **Ask before accessing** | Prompts for permission when accessing new directories | Recommended for security |
+| **Trust all directories** | Unrestricted filesystem access | Development environments |
+| **Workspace only** | Restricted to workspace directory | Maximum security |
+
+### Step 6: Workspace & Config
+
+Save configuration and initialize workspace:
+
+```
+Step 6/6: Setting up workspace & saving config
+
+╭────────────────────────────────────────╮
+│ ✓ Config saved: ~/.grip/config.json   │
+│ ✓ Workspace: ~/grip/workspace          │
+╰────────────────────────────────────────╯
+
+File access: prompt before trusting new directories
+
+Testing connection...
+Testing chat completion...
+Testing tool calling...
+✓ All tests passed!
+```
+
+**Automatic verification:**
+- Chat completion test
+- Tool calling verification
+- Provider connectivity check
+- API key validation
+
+### Success!
+
+```
+╭────────────────────────────────────────╮
+│ Setup Complete!                        │
+│                                        │
+│ Next steps:                            │
+│   grip agent          → Interactive chat│
+│   grip agent -m 'hi'  → One-shot query │
+│   grip status         → System status  │
+│   grip config show    → View config    │
+│                                        │
+│ Run grip gateway to start the bot!     │
+╰────────────────────────────────────────╯
+```
+
+## Connection Testing
+
+The wizard automatically tests your configuration:
+
+### Test Sequence
+
+1. **Chat completion** - Sends a simple message to verify basic connectivity
+2. **Tool calling** - Tests function calling capability
+3. **Model access** - Confirms model availability
+
+### If Tests Fail
+
+You'll see retry options:
+
+```
+✗ Connection failed!
+
+╭────────────────────────────────────────╮
+│ Connection Error                       │
+│ AuthenticationError: Invalid API key   │
+╰────────────────────────────────────────╯
+
+What would you like to do?
+❯ Test again
+  Setup again (restart wizard)
+```
+
+## Provider-Specific Setup
+
+### Claude Agent SDK
+
+```
+Step 1/6: Choose your LLM provider
+❯ Anthropic — Claude Agent SDK (Recommended)
+
+Step 2/6: Configure API key
+API key: sk-ant-***
+
+Step 3/6: Choose a Claude model
+❯ claude-sonnet-4-6
+  claude-opus-4-6
+  claude-haiku-4-5-20251001
+
+╭────────────────────────────────────────╮
+│ ✓ Engine: Claude Agent SDK             │
+│ ✓ Model: claude-sonnet-4-6             │
+╰────────────────────────────────────────╯
+```
+
+**Benefits:**
+- Advanced features (computer use)
+- Native agent support
+- Optimal performance
+
+### Local Models (Ollama)
+
+```
+Step 1/6: Choose your LLM provider
+❯ Ollama (Local)
+
+Step 2/6: Configure API key & Endpoint
+Ollama is a local model - no API key needed.
+
+Step 3/6: Choose a default model
+Enter model name: llama3.2
+
+╭────────────────────────────────────────╮
+│ ✓ Provider: Ollama                     │
+│ ✓ Model: llama3.2                      │
+╰────────────────────────────────────────╯
+```
+
+<Note>
+  Ensure Ollama is running locally before completing setup: `ollama serve`
+</Note>
+
+### Custom OpenAI-Compatible
+
+```
+Step 1/6: Choose your LLM provider
+❯ Other Models (Local / OpenAI Compatible)
+  ❯ Others (OpenAI Compatible)
+
+Enter API base URL: http://localhost:8080/v1
+Enter model name: my-custom-model
+Enter API key (or press Enter if none): 
+
+╭────────────────────────────────────────╮
+│ ✓ Provider: vLLM                       │
+│ ✓ Model: my-custom-model               │
+╰────────────────────────────────────────╯
+```
+
+## Linux User Setup
+
+On Linux, the wizard offers to create a dedicated user:
+
+```
+Create a dedicated 'grip' user for running the agent? No
+```
+
+**If you choose Yes:**
+
+```
+Run these commands to create the user:
+  sudo useradd -m -s /bin/bash grip
+  sudo su - grip
+  grip onboard
+
+Please create the user manually and re-run onboard.
+```
+
+**Benefits of dedicated user:**
+- Isolated environment
+- Limited permissions
+- Safer for production deployments
+
+## Configuration Created
+
+The wizard creates `~/.grip/config.json`:
+
+### Claude SDK Config
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "engine": "claude_sdk",
+      "model": "claude-sonnet-4-6",
+      "sdk_model": "claude-sonnet-4-6",
+      "provider": "anthropic"
+    }
+  },
+  "providers": {
+    "anthropic": {
+      "api_key": "sk-ant-***"
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "token": "123456:ABC-DEF***",
+      "allow_from": ["123456789"]
+    }
+  },
+  "tools": {
+    "restrict_to_workspace": false,
+    "trust_mode": "prompt"
+  }
+}
+```
+
+### LiteLLM Config
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "engine": "litellm",
+      "model": "gpt-4o",
+      "provider": "openai"
+    }
+  },
+  "providers": {
+    "openai": {
+      "api_key": "sk-proj-***",
+      "default_model": "gpt-4o"
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": false
+    }
+  },
+  "tools": {
+    "restrict_to_workspace": false,
+    "trust_mode": "prompt"
+  }
+}
+```
+
+## Re-running Setup
+
+You can run `grip onboard` again to reconfigure:
+
+```bash
+grip onboard
+```
+
+**This will:**
+- Overwrite existing configuration
+- Preserve workspace data
+- Keep existing sessions
+- Retain memory files
+
+<Note>
+  Back up your config first: `cp $(grip config path) $(grip config path).backup`
+</Note>
+
+## Troubleshooting
+
+### Connection Test Fails
+
+```
+✗ Connection failed!
+AuthenticationError: Invalid API key
+```
+
+**Solutions:**
+- Verify API key is correct
+- Check network connectivity
+- Ensure provider service is available
+- For local models, confirm server is running
+
+### Invalid Model Name
+
+```
+✗ Connection failed!
+ModelNotFoundError: model 'gpt-5' not found
+```
+
+**Solutions:**
+- Choose from suggested models
+- Verify custom model name
+- Check provider's available models
+
+### Telegram Bot Setup Issues
+
+**Bot token invalid:**
+- Verify token from @BotFather
+- Check for extra spaces or characters
+- Ensure token hasn't been revoked
+
+**User ID incorrect:**
+- Message @userinfobot in Telegram
+- Use numeric ID, not username
+- Don't include @ symbol
+
+### Workspace Creation Failed
+
+```
+Error: Permission denied: ~/grip/workspace
+```
+
+**Solutions:**
+- Check directory permissions
+- Ensure parent directory exists
+- Try different workspace location
+
+## Next Steps
+
+After setup completes:
+
+### Start Interactive Chat
+
+```bash
+grip agent
+```
+
+### Send One-Shot Query
+
+```bash
+grip agent -m "What time is it?"
+```
+
+### Start Gateway with Channels
+
+```bash
+grip gateway
+```
+
+### Check System Status
+
+```bash
+grip status
+```
+
+### View Configuration
+
+```bash
+grip config show
+```
+
+## Safety Disclaimer
+
+The wizard displays an important disclaimer:
+
+```
+╭────────────────────────────────────────╮
+│ DISCLAIMER                             │
+│                                        │
+│ grip is an AI agent that can execute   │
+│ shell commands, read/write files, and  │
+│ modify your system based on AI-        │
+│ generated decisions. While safety      │
+│ guards are in place, no AI system is   │
+│ infallible.                            │
+│                                        │
+│ Recommendations:                       │
+│   - Do NOT run as root                 │
+│   - Keep backups of important data     │
+│   - Use --dry-run mode when testing    │
+│   - Review actions before critical ops │
+│                                        │
+│ By continuing, you acknowledge that    │
+│ you use grip at your own risk.         │
+╰────────────────────────────────────────╯
+
+Continue with setup? Yes
+```
+
+<Note>
+  Always run Grip AI as a non-root user with appropriate permissions. Use file access restrictions and review actions in production environments.
+</Note>
+
+## Environment Variables
+
+The wizard recognizes these environment variables:
+
+```bash
+# Set before running onboard
+export ANTHROPIC_API_KEY="sk-ant-***"
+export OPENAI_API_KEY="sk-proj-***"
+export OPENROUTER_API_KEY="sk-or-***"
+
+# Run onboard (can skip API key entry)
+grip onboard
+```
+
+<Note>
+  Environment variables take precedence over config file values.
+</Note>
+
+## Related Commands
+
+- **[grip agent](/cli/agent)** - Start chatting after setup
+- **[grip config](/cli/config)** - Modify configuration
+- **[grip status](/cli/status)** - Check system status
+- **[grip gateway](/cli/gateway)** - Start full platform with channels

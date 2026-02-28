@@ -1,0 +1,500 @@
+---
+title: "grip status"
+description: "Show comprehensive system status including configuration, workspace, sessions, memory, and provider information"
+---
+
+## Overview
+
+The `grip status` command displays a comprehensive overview of your Grip AI system, including configuration details, workspace status, active sessions, memory usage, and provider information.
+
+## Usage
+
+```bash
+grip status
+```
+
+## Output Example
+
+```bash
+$ grip status
+
+╭─ grip Status ────────────────────────────────────╮
+│                                                  │
+│  Provider          Anthropic (claude-sonnet-4-6) │
+│  Model             claude-sonnet-4-6             │
+│  Max Tokens        4096                          │
+│  Temperature       0.7                           │
+│  Tool Iterations   10                            │
+│  Memory Window     50                            │
+│                                                  │
+│  Workspace         /home/user/grip/workspace     │
+│  Workspace Status  Initialized                   │
+│  Sessions          3                             │
+│  MEMORY.md         45.2 KB                       │
+│  HISTORY.md        128.7 KB                      │
+│                                                  │
+│  Sandbox Mode      Disabled                      │
+│  Shell Timeout     60s                           │
+│  MCP Servers       2                             │
+│                                                  │
+│  Channels          telegram (enabled)            │
+│                    discord (disabled)            │
+│                    slack (disabled)              │
+│                                                  │
+│  Heartbeat         Every 60min                   │
+│                                                  │
+│  Providers         openai (key set)              │
+│                    anthropic (key set)           │
+│                    openrouter (no key)           │
+╰──────────────────────────────────────────────────╯
+```
+
+## Information Sections
+
+### Model Configuration
+
+Shows the active AI model settings:
+
+- **Provider** - Display name and model identifier
+- **Model** - Full model path (e.g., `anthropic/claude-sonnet-4-6`)
+- **Max Tokens** - Maximum response length
+- **Temperature** - Randomness setting (0.0 = deterministic, 1.0 = creative)
+- **Tool Iterations** - Maximum tool calling loops
+- **Memory Window** - Number of recent interactions to retain
+
+**Example:**
+```
+Provider          Anthropic (claude-sonnet-4-6)
+Model             claude-sonnet-4-6
+Max Tokens        4096
+Temperature       0.7
+Tool Iterations   10
+Memory Window     50
+```
+
+### Workspace Status
+
+Shows workspace location and health:
+
+- **Workspace** - Absolute path to workspace directory
+- **Workspace Status** - `Initialized` or `Not initialized`
+- **Sessions** - Number of active session files
+- **MEMORY.md** - Long-term memory file size
+- **HISTORY.md** - Conversation history file size
+
+**Example:**
+```
+Workspace         /home/user/grip/workspace
+Workspace Status  Initialized
+Sessions          3
+MEMORY.md         45.2 KB
+HISTORY.md        128.7 KB
+```
+
+**Status meanings:**
+- `Initialized` - Workspace directory exists with required structure
+- `Not initialized` - Workspace needs setup (run `grip agent` to initialize)
+
+**File sizes:**
+- Shown in B (bytes), KB (kilobytes), or MB (megabytes)
+- `not created` - File doesn't exist yet (normal for new installations)
+
+### Tool Configuration
+
+Shows security and tool settings:
+
+- **Sandbox Mode** - Whether file access is restricted to workspace
+- **Shell Timeout** - Maximum seconds for shell command execution
+- **MCP Servers** - Number of configured Model Context Protocol servers
+
+**Example:**
+```
+Sandbox Mode      Disabled
+Shell Timeout     60s
+MCP Servers       2
+```
+
+**Sandbox modes:**
+- `Enabled` - File operations restricted to workspace directory only
+- `Disabled` - File access based on trust mode settings
+
+### Channel Status
+
+Shows messaging platform integration status:
+
+- **telegram** - Telegram bot connection state
+- **discord** - Discord bot connection state
+- **slack** - Slack bot connection state
+
+**Example:**
+```
+Channels          telegram (enabled)
+                  discord (disabled)
+                  slack (disabled)
+```
+
+**States:**
+- `enabled` (green) - Channel is configured and active
+- `disabled` (dim) - Channel is not configured or turned off
+
+### Heartbeat Service
+
+Shows autonomous agent check-in settings:
+
+**Example:**
+```
+Heartbeat         Every 60min
+```
+
+**States:**
+- `Every Xmin` - Heartbeat is enabled with interval
+- `Disabled` - Heartbeat service is turned off
+
+### Configured Providers
+
+Lists all providers with API key status:
+
+**Example:**
+```
+Providers         openai (key set)
+                  anthropic (key set)
+                  openrouter (no key)
+```
+
+**Key status:**
+- `key set` (green) - Provider has API key configured
+- `no key` (dim) - Provider exists but no API key
+
+## Interpreting Status
+
+### Healthy System
+
+```bash
+╭─ grip Status ────────────────────────────────────╮
+│  Provider          OpenAI (gpt-4o)               │
+│  Workspace Status  Initialized                   │
+│  Sessions          5                             │
+│  MEMORY.md         67.3 KB                       │
+│  Providers         openai (key set)              │
+╰──────────────────────────────────────────────────╯
+```
+
+**Indicators:**
+- ✓ Provider configured with API key
+- ✓ Workspace initialized
+- ✓ Sessions exist (agent has been used)
+- ✓ Memory files created
+
+### New Installation
+
+```bash
+╭─ grip Status ────────────────────────────────────╮
+│  Provider          Anthropic (claude-sonnet-4-6) │
+│  Workspace Status  Not initialized               │
+│  Sessions          0                             │
+│  MEMORY.md         not created                   │
+│  HISTORY.md        not created                   │
+╰──────────────────────────────────────────────────╯
+```
+
+**Next steps:**
+- Run `grip agent` to initialize workspace
+- Start a conversation to create memory files
+
+### Missing Configuration
+
+```bash
+╭─ grip Status ────────────────────────────────────╮
+│  Provider          openrouter                    │
+│  Providers         openrouter (no key)           │
+╰──────────────────────────────────────────────────╯
+```
+
+**Action needed:**
+```bash
+grip config set providers.openrouter.api_key YOUR_API_KEY
+```
+
+## Use Cases
+
+### Quick Health Check
+
+```bash
+grip status
+```
+
+Verify system is properly configured before starting.
+
+### Debugging Issues
+
+```bash
+$ grip agent
+Error: Workspace not initialized
+
+$ grip status
+Workspace Status  Not initialized
+
+$ grip agent
+# Workspace will be created automatically
+```
+
+### Checking Session Count
+
+```bash
+$ grip status | grep Sessions
+Sessions          12
+```
+
+Monitor active sessions for cleanup.
+
+### Verifying Provider Configuration
+
+```bash
+$ grip status | grep -A3 "Providers"
+Providers         openai (key set)
+                  anthropic (key set)
+```
+
+Confirm API keys are configured.
+
+### Monitoring Memory Usage
+
+```bash
+$ grip status | grep -E "MEMORY|HISTORY"
+MEMORY.md         2.3 MB
+HISTORY.md        5.7 MB
+```
+
+Track memory file growth over time.
+
+### Channel Status Check
+
+```bash
+$ grip status | grep -A3 "Channels"
+Channels          telegram (enabled)
+                  discord (disabled)
+                  slack (disabled)
+```
+
+Verify which channels are active.
+
+## Workspace Files
+
+The status command checks these workspace files:
+
+### Directory Structure
+
+```
+~/grip/workspace/
+├── memory/
+│   ├── MEMORY.md      # Long-term facts and context
+│   └── HISTORY.md     # Recent conversation history
+├── sessions/
+│   ├── cli:interactive.json
+│   ├── telegram:123456.json
+│   └── api:user_789.json
+└── tools/
+    └── (tool-specific data)
+```
+
+### MEMORY.md
+
+Stores long-term agent memory:
+- User preferences
+- Important facts
+- Project context
+- Custom instructions
+
+**Size indicators:**
+- < 100 KB - Normal for casual use
+- 100 KB - 1 MB - Moderate usage
+- > 1 MB - Heavy usage, consider periodic cleanup
+
+### HISTORY.md
+
+Stores recent conversation history:
+- Last 50 interactions (configurable via `memory_window`)
+- Message summaries
+- Tool execution results
+
+**Size indicators:**
+- < 200 KB - Normal
+- 200 KB - 1 MB - Active usage
+- > 1 MB - Very active, auto-compacts during conversations
+
+### Sessions
+
+Each session file contains:
+- Message history
+- Agent state
+- Tool call records
+- Model configuration
+
+**Session count:**
+- 0 - New installation or no usage
+- 1-5 - Normal usage
+- 10+ - Multiple users or channels
+
+## Scripting with Status
+
+### Extract Specific Values
+
+```bash
+# Get workspace path
+WORKSPACE=$(grip status | grep "Workspace " | awk '{print $2}')
+echo $WORKSPACE
+
+# Get session count
+SESSIONS=$(grip status | grep "Sessions" | awk '{print $2}')
+echo "Active sessions: $SESSIONS"
+
+# Check if workspace is initialized
+if grip status | grep -q "Workspace Status  Initialized"; then
+  echo "Workspace ready"
+else
+  echo "Workspace needs initialization"
+fi
+```
+
+### Monitor System Health
+
+```bash
+#!/bin/bash
+# health-check.sh
+
+echo "=== Grip AI Health Check ==="
+grip status
+
+# Check for issues
+if ! grip status | grep -q "key set"; then
+  echo "⚠️  Warning: No API keys configured"
+fi
+
+if ! grip status | grep -q "Initialized"; then
+  echo "⚠️  Warning: Workspace not initialized"
+fi
+
+echo "✓ Health check complete"
+```
+
+### Session Cleanup Script
+
+```bash
+#!/bin/bash
+# cleanup-old-sessions.sh
+
+WORKSPACE=$(grip status | grep "Workspace " | awk '{print $2}')
+SESSIONS_DIR="$WORKSPACE/sessions"
+
+echo "Current sessions: $(grip status | grep Sessions | awk '{print $2}')"
+
+# Remove sessions older than 30 days
+find "$SESSIONS_DIR" -name "*.json" -mtime +30 -delete
+
+echo "After cleanup: $(grip status | grep Sessions | awk '{print $2}')"
+```
+
+## Related Commands
+
+### View Configuration
+
+```bash
+grip config show
+```
+
+See full configuration with all settings.
+
+### Modify Settings
+
+```bash
+grip config set agents.defaults.temperature 0.3
+grip config set agents.defaults.max_tokens 8192
+```
+
+Change values shown in status.
+
+### Check Config Path
+
+```bash
+grip config path
+```
+
+Locate the configuration file.
+
+### Test Provider Connection
+
+```bash
+grip agent -m "test"
+```
+
+Verify provider is working.
+
+## Troubleshooting
+
+### Workspace Not Initialized
+
+```bash
+$ grip status
+Workspace Status  Not initialized
+```
+
+**Solution:**
+```bash
+grip agent
+# Workspace will be created automatically
+```
+
+### No API Key Configured
+
+```bash
+$ grip status
+Providers         openai (no key)
+```
+
+**Solution:**
+```bash
+grip config set providers.openai.api_key YOUR_KEY
+# or
+export OPENAI_API_KEY="YOUR_KEY"
+```
+
+### Large Memory Files
+
+```bash
+$ grip status
+MEMORY.md         5.2 MB
+HISTORY.md        12.8 MB
+```
+
+**Solution:**
+```bash
+# Compact in interactive mode
+grip agent
+> /compact
+
+# Or manually edit files
+vim ~/grip/workspace/memory/MEMORY.md
+```
+
+### Many Old Sessions
+
+```bash
+$ grip status
+Sessions          47
+```
+
+**Solution:**
+```bash
+# Remove old session files
+find ~/grip/workspace/sessions/ -mtime +30 -delete
+
+# Check again
+grip status
+```
+
+## Related Commands
+
+- **[grip config](/cli/config)** - View and modify configuration
+- **[grip agent](/cli/agent)** - Start using the agent
+- **[grip gateway](/cli/gateway)** - Start full platform
+- **[grip onboard](/cli/onboard)** - Initial setup wizard

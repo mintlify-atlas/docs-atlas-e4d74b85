@@ -110,13 +110,17 @@
             "group": "CLI Commands",
             "pages": [
               "cli/overview",
+              "cli/onboard",
               "cli/agent",
               "cli/gateway",
+              "cli/serve",
               "cli/config",
               "cli/cron",
               "cli/skills",
               "cli/workflow",
-              "cli/mcp"
+              "cli/mcp",
+              "cli/status",
+              "cli/update"
             ]
           },
           {
@@ -132,7 +136,11 @@
               "tools/scheduler",
               "tools/workflow",
               "tools/finance",
-              "tools/mcp-proxy"
+              "tools/mcp-proxy",
+              "tools/code-analysis",
+              "tools/data-transform",
+              "tools/document-gen",
+              "tools/email-compose"
             ]
           }
         ]

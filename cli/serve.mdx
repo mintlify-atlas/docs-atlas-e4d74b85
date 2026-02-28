@@ -1,0 +1,527 @@
+---
+title: "grip serve"
+description: "Start standalone REST API server for Grip AI without channels, cron scheduler, or heartbeat services"
+---
+
+## Overview
+
+The `grip serve` command starts a lightweight REST API server without the full gateway features. It provides HTTP endpoints for agent interaction but skips channels (Telegram, Discord, Slack), cron scheduler, and heartbeat services.
+
+**Use this when:**
+- You only need the HTTP API
+- You don't want messaging platform integrations
+- You want a minimal deployment
+- You're building custom integrations
+
+## Usage
+
+```bash
+grip serve [OPTIONS]
+```
+
+## What It Starts
+
+### REST API Server
+
+HTTP API with FastAPI + Uvicorn:
+
+- **Chat endpoints** - `/api/chat` for agent conversations
+- **Session management** - `/api/sessions` for session control
+- **Tool execution** - `/api/tools` for direct tool calls
+- **Health checks** - `/api/health` for monitoring
+- **MCP servers** - `/api/mcp` for server management
+
+**Default:** `http://0.0.0.0:8080`
+
+### What It Excludes
+
+Compared to `grip gateway`, this does NOT start:
+
+- ❌ Telegram, Discord, or Slack channels
+- ❌ Cron scheduler for periodic tasks
+- ❌ Heartbeat service for autonomous check-ins
+- ❌ Message bus for channel routing
+
+## Options
+
+### --host / -H
+
+Override the bind address from config:
+
+```bash
+grip serve --host 127.0.0.1
+grip serve -H 0.0.0.0
+```
+
+**Default:** `0.0.0.0` (all interfaces)
+
+**Common values:**
+- `0.0.0.0` - Listen on all network interfaces
+- `127.0.0.1` - Localhost only (most secure)
+- `192.168.1.100` - Specific interface
+
+### --port / -p
+
+Override the bind port from config:
+
+```bash
+grip serve --port 3000
+grip serve -p 8080
+```
+
+**Default:** `8080`
+
+## Starting the Server
+
+### Basic Start
+
+```bash
+$ grip serve
+
+grip API server starting on 0.0.0.0:8080
+```
+
+**Output indicates:**
+- Server is running
+- Bind address and port
+- Ready to accept requests
+
+### Custom Port
+
+```bash
+$ grip serve --port 3000
+
+grip API server starting on 0.0.0.0:3000
+```
+
+### Localhost Only
+
+```bash
+$ grip serve --host 127.0.0.1
+
+grip API server starting on 127.0.0.1:8080
+```
+
+### Custom Host and Port
+
+```bash
+$ grip serve --host 127.0.0.1 --port 3000
+
+grip API server starting on 127.0.0.1:3000
+```
+
+## API Endpoints
+
+Once running, access these endpoints:
+
+### Health Check
+
+```bash
+curl http://localhost:8080/health
+```
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "version": "1.0.0",
+  "uptime_seconds": 120
+}
+```
+
+### Chat API
+
+```bash
+curl -X POST http://localhost:8080/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What time is it?",
+    "session_id": "api:test-session"
+  }'
+```
+
+**Response:**
+```json
+{
+  "response": "The current time is 2:47 PM.",
+  "session_id": "api:test-session",
+  "iterations": 1,
+  "tokens_used": 89
+}
+```
+
+### Session Management
+
+```bash
+# List sessions
+curl http://localhost:8080/api/sessions
+
+# Get session details
+curl http://localhost:8080/api/sessions/api:test-session
+
+# Clear session
+curl -X DELETE http://localhost:8080/api/sessions/api:test-session
+```
+
+### Tool Execution
+
+```bash
+curl -X POST http://localhost:8080/api/tools/bash \
+  -H "Content-Type: application/json" \
+  -d '{
+    "command": "ls -la"
+  }'
+```
+
+### MCP Server Management
+
+```bash
+# List MCP servers
+curl http://localhost:8080/api/mcp/servers
+
+# Get server tools
+curl http://localhost:8080/api/mcp/servers/todoist/tools
+```
+
+## Configuration
+
+The server reads from `~/.grip/config.json`:
+
+```json
+{
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "api": {
+      "max_request_body_bytes": 1048576,
+      "rate_limit_per_minute": 60,
+      "rate_limit_per_minute_per_ip": 10
+    }
+  }
+}
+```
+
+**Key settings:**
+- `host` - Bind address (overridden by `--host`)
+- `port` - Bind port (overridden by `--port`)
+- `max_request_body_bytes` - Maximum request size (default: 1MB)
+- `rate_limit_per_minute` - Global rate limit
+- `rate_limit_per_minute_per_ip` - Per-IP rate limit
+
+## Stopping the Server
+
+Press `Ctrl+C` to stop:
+
+```bash
+^C
+Shutting down...
+```
+
+The server shuts down gracefully:
+1. Stops accepting new requests
+2. Completes in-progress requests
+3. Closes connections
+4. Exits cleanly
+
+<Note>
+  Always use Ctrl+C or `kill <pid>` (not `kill -9`) for graceful shutdown.
+</Note>
+
+## Dependencies
+
+The API server requires optional dependencies:
+
+```bash
+# Install with pip
+pip install grip[api]
+
+# Or with uv
+uv pip install grip[api]
+```
+
+**If not installed:**
+
+```bash
+$ grip serve
+
+API dependencies not installed.
+Install with: pip install grip[api]  or  uv pip install grip[api]
+```
+
+**Included packages:**
+- FastAPI - Web framework
+- Uvicorn - ASGI server
+- Pydantic - Request validation
+- Python-multipart - File uploads
+
+## Use Cases
+
+### API-Only Deployment
+
+Run Grip AI as a backend service:
+
+```bash
+grip serve --host 0.0.0.0 --port 8080
+```
+
+Access from your application:
+
+```python
+import requests
+
+response = requests.post(
+    "http://your-server:8080/api/chat",
+    json={
+        "message": "Analyze this data",
+        "session_id": "user_123"
+    }
+)
+result = response.json()
+```
+
+### Development Server
+
+Quick local testing without channels:
+
+```bash
+grip serve --host 127.0.0.1 --port 3000
+```
+
+### Microservice Architecture
+
+Embed Grip AI in a larger system:
+
+```bash
+# Grip AI service
+grip serve --port 8080
+
+# Your frontend (port 3000)
+# Your database (port 5432)
+# Other services...
+```
+
+### Docker Container
+
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY . .
+RUN pip install grip[api]
+EXPOSE 8080
+CMD ["grip", "serve", "--host", "0.0.0.0"]
+```
+
+```bash
+docker build -t grip-api .
+docker run -p 8080:8080 grip-api
+```
+
+## Production Deployment
+
+### Using systemd
+
+Create `/etc/systemd/system/grip-serve.service`:
+
+```ini
+[Unit]
+Description=Grip AI API Server
+After=network.target
+
+[Service]
+Type=simple
+User=grip
+WorkingDirectory=/home/grip
+ExecStart=/usr/local/bin/grip serve
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Commands:**
+```bash
+sudo systemctl enable grip-serve
+sudo systemctl start grip-serve
+sudo systemctl status grip-serve
+```
+
+### Behind Nginx
+
+```nginx
+server {
+    listen 80;
+    server_name api.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+```bash
+grip serve --host 127.0.0.1 --port 8080
+```
+
+### Using PM2
+
+```bash
+pm2 start "grip serve" --name grip-api
+pm2 save
+pm2 startup
+```
+
+### Docker Compose
+
+```yaml
+version: '3.8'
+services:
+  grip-api:
+    image: grip-api
+    ports:
+      - "8080:8080"
+    volumes:
+      - ~/.grip/config.json:/root/.grip/config.json
+      - ~/grip/workspace:/root/grip/workspace
+    restart: always
+```
+
+```bash
+docker-compose up -d
+```
+
+## Monitoring
+
+### Health Checks
+
+```bash
+# Simple check
+curl http://localhost:8080/health
+
+# With timeout
+curl --max-time 5 http://localhost:8080/health
+
+# In a loop
+while true; do
+  curl -s http://localhost:8080/health | jq .
+  sleep 60
+done
+```
+
+### Logs
+
+Uvicorn logs are printed to stdout:
+
+```bash
+grip serve 2>&1 | tee server.log
+```
+
+### Metrics
+
+Access logs show request patterns:
+
+```
+INFO:     127.0.0.1:52342 - "POST /api/chat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52343 - "GET /health HTTP/1.1" 200 OK
+```
+
+## Troubleshooting
+
+### Port Already in Use
+
+```bash
+$ grip serve
+
+Error: [Errno 48] Address already in use
+```
+
+**Solution:**
+
+```bash
+# Find process using port
+lsof -i :8080
+
+# Kill process or use different port
+grip serve --port 3000
+```
+
+### API Dependencies Missing
+
+```bash
+$ grip serve
+
+API dependencies not installed.
+```
+
+**Solution:**
+
+```bash
+pip install grip[api]
+# or
+uv pip install grip[api]
+```
+
+### Connection Refused
+
+```bash
+$ curl http://localhost:8080/health
+curl: (7) Failed to connect to localhost port 8080
+```
+
+**Check:**
+- Server is running
+- Correct host and port
+- Firewall settings
+- Server logs for errors
+
+### High Memory Usage
+
+```bash
+# Check memory
+ps aux | grep grip
+
+# Limit workers
+grip serve --workers 1
+
+# Clear old sessions
+find ~/grip/workspace/sessions/ -mtime +7 -delete
+```
+
+## Comparison: serve vs gateway
+
+| Feature | `grip serve` | `grip gateway` |
+|---------|--------------|----------------|
+| REST API | ✓ | ✓ |
+| Telegram | ✗ | ✓ |
+| Discord | ✗ | ✓ |
+| Slack | ✗ | ✓ |
+| Cron scheduler | ✗ | ✓ |
+| Heartbeat service | ✗ | ✓ |
+| Message bus | ✗ | ✓ |
+| Startup time | Fast | Slower |
+| Memory usage | Low | Higher |
+| Use case | API-only | Full platform |
+
+**When to use `grip serve`:**
+- Building custom integrations
+- Embedding in applications
+- API-only deployments
+- Minimal resource usage
+- Development/testing
+
+**When to use `grip gateway`:**
+- Need messaging platforms
+- Want scheduled tasks
+- Require autonomous agents
+- Full feature set
+- Production deployments
+
+## Related Commands
+
+- **[grip gateway](/cli/gateway)** - Full platform with channels and services
+- **[grip agent](/cli/agent)** - Interactive chat (no server required)
+- **[grip config](/cli/config)** - Configure server settings
+- **[grip status](/cli/status)** - Check system status

@@ -1,0 +1,326 @@
+---
+title: "Data Transform"
+description: "CSV/JSON/YAML data transformation pipeline with filter, select, sort, and aggregate operations"
+---
+
+## Overview
+
+The data transform tool provides a pipeline-based approach to transforming structured data. It supports CSV, JSON, and YAML formats, and applies operations sequentially: filter, select, sort, and aggregate.
+
+## Tool
+
+### data_transform
+
+Transform structured data files using a pipeline of operations.
+
+<ParamField path="input_file" type="string" required>
+  Path to the input data file (CSV, JSON, or YAML)
+</ParamField>
+
+<ParamField path="output_file" type="string">
+  Path for the output file. Extension determines format. If omitted, returns transformed data as JSON.
+</ParamField>
+
+<ParamField path="operations" type="array">
+  Pipeline of operations applied sequentially. Each operation is an object with a `type` field.
+</ParamField>
+
+**Example:**
+```python
+result = await data_transform(
+    input_file="sales_data.csv",
+    output_file="filtered_sales.json",
+    operations=[
+        {
+            "type": "filter",
+            "filter": {"column": "revenue", "op": ">", "value": 1000}
+        },
+        {
+            "type": "sort",
+            "sort": {"by": "revenue", "reverse": true}
+        }
+    ]
+)
+```
+
+---
+
+## Operations
+
+### filter
+
+Filter rows based on column value and comparison operator.
+
+**Filter specification:**
+- `column`: Column name to filter on
+- `op`: Comparison operator
+- `value`: Value to compare against
+
+**Supported operators:**
+- `==`: Equals (string comparison)
+- `!=`: Not equals
+- `>`: Greater than (numeric)
+- `<`: Less than (numeric)
+- `>=`: Greater than or equal (numeric)
+- `<=`: Less than or equal (numeric)
+- `contains`: Case-insensitive substring match
+
+**Example:**
+```python
+operations=[
+    {
+        "type": "filter",
+        "filter": {"column": "status", "op": "==", "value": "active"}
+    }
+]
+```
+
+**Numeric filtering:**
+```python
+operations=[
+    {
+        "type": "filter",
+        "filter": {"column": "price", "op": ">=", "value": 50}
+    }
+]
+```
+
+**Substring search:**
+```python
+operations=[
+    {
+        "type": "filter",
+        "filter": {"column": "description", "op": "contains", "value": "premium"}
+    }
+]
+```
+
+---
+
+### select
+
+Select only specified columns from each row.
+
+**Select specification:**
+- `columns`: List of column names to keep
+
+**Example:**
+```python
+operations=[
+    {
+        "type": "select",
+        "columns": ["id", "name", "email"]
+    }
+]
+```
+
+---
+
+### sort
+
+Sort data by a column in ascending or descending order.
+
+**Sort specification:**
+- `by`: Column name to sort by
+- `reverse`: Boolean, true for descending order (default: false)
+
+**Example (ascending):**
+```python
+operations=[
+    {
+        "type": "sort",
+        "sort": {"by": "created_at", "reverse": false}
+    }
+]
+```
+
+**Example (descending):**
+```python
+operations=[
+    {
+        "type": "sort",
+        "sort": {"by": "revenue", "reverse": true}
+    }
+]
+```
+
+**Auto-detection:** Attempts numeric sorting first, falls back to case-insensitive string sorting.
+
+---
+
+### aggregate
+
+Group by a column and compute aggregate statistics.
+
+**Aggregate specification:**
+- `group_by`: Column to group by
+- `agg`: Aggregation function (`count`, `sum`, `avg`, `min`, `max`)
+- `value_column`: Column to aggregate (required for sum/avg/min/max)
+
+**Example (count):**
+```python
+operations=[
+    {
+        "type": "aggregate",
+        "aggregate": {"group_by": "category", "agg": "count"}
+    }
+]
+```
+
+**Example (sum):**
+```python
+operations=[
+    {
+        "type": "aggregate",
+        "aggregate": {
+            "group_by": "region",
+            "agg": "sum",
+            "value_column": "sales"
+        }
+    }
+]
+```
+
+**Example (average):**
+```python
+operations=[
+    {
+        "type": "aggregate",
+        "aggregate": {
+            "group_by": "department",
+            "agg": "avg",
+            "value_column": "salary"
+        }
+    }
+]
+```
+
+**Output format:**
+- Count: `{group_by_column: value, count: N}`
+- Sum/Avg/Min/Max: `{group_by_column: value, agg_value_column: result}`
+
+---
+
+## Pipeline Example
+
+Combine multiple operations for complex transformations:
+
+```python
+result = await data_transform(
+    input_file="transactions.csv",
+    output_file="summary.json",
+    operations=[
+        # Keep only completed transactions
+        {
+            "type": "filter",
+            "filter": {"column": "status", "op": "==", "value": "completed"}
+        },
+        # Keep only high-value transactions
+        {
+            "type": "filter",
+            "filter": {"column": "amount", "op": ">", "value": 100}
+        },
+        # Select relevant columns
+        {
+            "type": "select",
+            "columns": ["customer_id", "amount", "region"]
+        },
+        # Group by region and sum amounts
+        {
+            "type": "aggregate",
+            "aggregate": {
+                "group_by": "region",
+                "agg": "sum",
+                "value_column": "amount"
+            }
+        },
+        # Sort by total amount descending
+        {
+            "type": "sort",
+            "sort": {"by": "sum_amount", "reverse": true}
+        }
+    ]
+)
+```
+
+---
+
+## Input Formats
+
+### CSV
+
+Reads CSV files using Python's `csv.DictReader`. First row is treated as headers.
+
+### JSON
+
+Supports three JSON structures:
+- **Array of objects:** `[{"id": 1, "name": "Alice"}, ...]`
+- **Single object:** `{"id": 1, "name": "Alice"}` (wrapped in array)
+- **Primitive value:** `42` (wrapped as `[{"value": 42}]`)
+
+### YAML
+
+Requires `PyYAML` package. Supports same structures as JSON.
+
+**Install YAML support:**
+```bash
+pip install pyyaml
+```
+
+---
+
+## Output Formats
+
+Output format is determined by file extension:
+
+- `.csv`: CSV with headers
+- `.json`: JSON with 2-space indentation
+- `.yaml` or `.yml`: YAML with default flow style
+
+**Without output_file:** Returns transformed data as JSON preview (first 20 records).
+
+---
+
+## Return Values
+
+**With output_file:**
+```
+Wrote 42 records to filtered_sales.json
+
+Preview (first 5 rows):
+[
+  {"id": 1, "name": "Product A", "revenue": 1500},
+  {"id": 3, "name": "Product C", "revenue": 1200},
+  ...
+]
+```
+
+**Without output_file:**
+```
+Transformed 42 records:
+[
+  {"id": 1, "name": "Product A"},
+  ...
+]
+```
+
+---
+
+## Use Cases
+
+1. **Data cleaning:** Filter out invalid or incomplete records
+2. **Report generation:** Select and sort specific columns for reporting
+3. **Format conversion:** Convert between CSV, JSON, and YAML
+4. **Data aggregation:** Group and summarize large datasets
+5. **ETL pipelines:** Transform data before loading into databases
+
+---
+
+## Implementation
+
+Defined in `grip/tools/data_transform.py` at data_transform.py:183. Uses:
+- Python's built-in `csv` and `json` modules
+- Optional `PyYAML` for YAML support
+- Sequential pipeline processing (operations applied in order)
+- Type coercion for numeric comparisons in filters
+- Graceful handling of missing columns and invalid values

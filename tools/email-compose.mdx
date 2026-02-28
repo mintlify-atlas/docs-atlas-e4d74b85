@@ -1,0 +1,322 @@
+---
+title: "Email Compose"
+description: "Tone-aware email drafting with formal, friendly, urgent, apologetic, and followup tone presets"
+---
+
+## Overview
+
+The email compose tool creates tone-aware email drafts with appropriate greetings, closings, and formatting. It supports five tone presets: formal, friendly, urgent, apologetic, and followup. Drafts are saved to the workspace but NOT sent.
+
+## Tool
+
+### email_compose
+
+Compose a tone-aware email draft. Does NOT send the email.
+
+<ParamField path="tone" type="string" required>
+  Email tone preset. Options: `formal`, `friendly`, `urgent`, `apologetic`, `followup`.
+</ParamField>
+
+<ParamField path="recipient" type="string" required>
+  Recipient name
+</ParamField>
+
+<ParamField path="sender" type="string" required>
+  Sender name
+</ParamField>
+
+<ParamField path="subject" type="string" required>
+  Email subject line
+</ParamField>
+
+<ParamField path="body" type="string" required>
+  Main email body content
+</ParamField>
+
+<ParamField path="context" type="string">
+  Additional context. For followup: prior topic. For apologetic: what to apologize for.
+</ParamField>
+
+**Example:**
+```python
+result = await email_compose(
+    tone="formal",
+    recipient="Dr. Smith",
+    sender="Alice Johnson",
+    subject="Research Collaboration Proposal",
+    body="I am writing to propose a collaboration on the climate modeling project."
+)
+```
+
+---
+
+## Tone Presets
+
+### formal
+
+Professional tone for business correspondence, official requests, or formal introductions.
+
+**Characteristics:**
+- Greeting: "Dear {recipient},"
+- Closing: "Sincerely,\n{sender}"
+- Style: Professional, respectful
+
+**Example:**
+```python
+result = await email_compose(
+    tone="formal",
+    recipient="Mr. Anderson",
+    sender="Sarah Chen",
+    subject="Contract Review Request",
+    body="I would like to request a review of the proposed contract terms outlined in the attached document. Please let me know if you have any questions or require additional information."
+)
+```
+
+**Output:**
+```markdown
+**Subject:** Contract Review Request
+
+Dear Mr. Anderson,
+
+I would like to request a review of the proposed contract terms outlined in the attached document. Please let me know if you have any questions or require additional information.
+
+Sincerely,
+Sarah Chen
+```
+
+---
+
+### friendly
+
+Casual, warm tone for colleagues, team members, or informal communications.
+
+**Characteristics:**
+- Greeting: "Hi {recipient},"
+- Closing: "Best,\n{sender}"
+- Style: Casual, approachable
+
+**Example:**
+```python
+result = await email_compose(
+    tone="friendly",
+    recipient="Jamie",
+    sender="Alex",
+    subject="Quick check-in",
+    body="Hope you're doing well! Just wanted to see if you had a chance to review the design mockups I sent last week. No rush, but let me know if you have any feedback."
+)
+```
+
+**Output:**
+```markdown
+**Subject:** Quick check-in
+
+Hi Jamie,
+
+Hope you're doing well! Just wanted to see if you had a chance to review the design mockups I sent last week. No rush, but let me know if you have any feedback.
+
+Best,
+Alex
+```
+
+---
+
+### urgent
+
+Direct, action-oriented tone for time-sensitive matters requiring immediate attention.
+
+**Characteristics:**
+- Greeting: "[ACTION REQUIRED]\n\nDear {recipient},"
+- Closing: "This requires your immediate attention.\n\nRegards,\n{sender}"
+- Priority: HIGH flag
+- Style: Direct, clear
+
+**Example:**
+```python
+result = await email_compose(
+    tone="urgent",
+    recipient="Security Team",
+    sender="System Administrator",
+    subject="Critical Security Patch Required",
+    body="A critical security vulnerability has been identified in the production database. Please apply the attached patch within the next 2 hours."
+)
+```
+
+**Output:**
+```markdown
+**Subject:** Critical Security Patch Required
+
+**Priority:** HIGH
+
+**[ACTION REQUIRED]**
+
+Dear Security Team,
+
+A critical security vulnerability has been identified in the production database. Please apply the attached patch within the next 2 hours.
+
+This requires your immediate attention.
+
+Regards,
+System Administrator
+```
+
+---
+
+### apologetic
+
+Empathetic, sincere tone for apologies or explaining mistakes.
+
+**Characteristics:**
+- Greeting: "Dear {recipient},\n\nI hope this message finds you well. I want to sincerely apologize"
+- Closing: "I appreciate your understanding and patience.\n\nWith regards,\n{sender}"
+- Style: Empathetic, accountable
+
+**Example with context:**
+```python
+result = await email_compose(
+    tone="apologetic",
+    recipient="Customer Support Team",
+    sender="Product Manager",
+    subject="Apology for Service Disruption",
+    body="The service outage lasted longer than anticipated and affected many of our users. We have identified the root cause and implemented measures to prevent recurrence.",
+    context="the extended service outage on February 27th"
+)
+```
+
+**Output:**
+```markdown
+**Subject:** Apology for Service Disruption
+
+Dear Customer Support Team,
+
+I hope this message finds you well. I want to sincerely apologize
+
+for the extended service outage on February 27th.
+
+The service outage lasted longer than anticipated and affected many of our users. We have identified the root cause and implemented measures to prevent recurrence.
+
+I appreciate your understanding and patience.
+
+With regards,
+Product Manager
+```
+
+---
+
+### followup
+
+Reference-based tone for following up on previous conversations or emails.
+
+**Characteristics:**
+- Greeting: "Hi {recipient},\n\nFollowing up on our previous correspondence"
+- Closing: "Looking forward to hearing from you.\n\nBest regards,\n{sender}"
+- Style: Polite reminder with context reference
+
+**Example with context:**
+```python
+result = await email_compose(
+    tone="followup",
+    recipient="Taylor",
+    sender="Morgan",
+    subject="Re: Budget Approval",
+    body="I wanted to check in on the status of the Q2 budget proposal I submitted last week. Please let me know if you need any additional information.",
+    context="the Q2 budget proposal"
+)
+```
+
+**Output:**
+```markdown
+**Subject:** Re: Budget Approval
+
+Hi Taylor,
+
+Following up on our previous correspondence
+
+regarding the Q2 budget proposal,
+
+I wanted to check in on the status of the Q2 budget proposal I submitted last week. Please let me know if you need any additional information.
+
+Looking forward to hearing from you.
+
+Best regards,
+Morgan
+```
+
+---
+
+## Draft Storage
+
+All email drafts are automatically saved to `workspace/drafts/` with timestamped filenames:
+
+**Filename format:**
+```
+YYYYMMDD_HHMMSS_sanitized_subject.md
+```
+
+**Example:**
+```
+20260228_143022_Contract_Review_Request.md
+```
+
+**Subject sanitization:**
+- Alphanumeric characters, spaces, hyphens, and underscores allowed
+- Maximum 50 characters
+- Spaces replaced with underscores
+
+---
+
+## Return Value
+
+```
+Draft saved to drafts/20260228_143022_Research_Collaboration_Proposal.md
+
+---
+
+**Subject:** Research Collaboration Proposal
+
+Dear Dr. Smith,
+
+I am writing to propose a collaboration on the climate modeling project.
+
+Sincerely,
+Alice Johnson
+```
+
+---
+
+## Use Cases
+
+1. **Professional outreach:** Compose formal business emails
+2. **Team communication:** Draft friendly updates for colleagues
+3. **Incident response:** Create urgent notifications for critical issues
+4. **Customer relations:** Write apologetic emails for service issues
+5. **Follow-up reminders:** Send polite follow-ups on pending items
+
+---
+
+## Best Practices
+
+1. **Choose the right tone** for your audience and purpose
+2. **Provide context** for followup and apologetic emails
+3. **Keep body concise** — one or two paragraphs ideal
+4. **Review drafts** before sending (tool does NOT send)
+5. **Use urgent sparingly** to maintain its effectiveness
+
+---
+
+## Important Notes
+
+**This tool does NOT send emails.** It only creates drafts saved to `workspace/drafts/`. You must copy the content to your email client to send.
+
+**No email service integration:** The tool does not connect to SMTP servers, Gmail API, or any email service.
+
+---
+
+## Implementation
+
+Defined in `grip/tools/email_compose.py` at email_compose.py:82. Uses:
+- Predefined tone templates with greeting/closing patterns
+- Variable substitution for recipient and sender names
+- Context insertion for followup and apologetic tones
+- Markdown format for easy copy-paste into email clients
+- Automatic draft directory creation (`workspace/drafts/`)
+- UTC timestamps for consistent filename sorting
